@@ -27,6 +27,15 @@ type Split struct {
 	AmountCents int64
 }
 
+// addChecked returns a+b and false if the signed addition overflows int64.
+func addChecked(a, b int64) (int64, bool) {
+	sum := a + b
+	if (b > 0 && sum < a) || (b < 0 && sum > a) {
+		return 0, false
+	}
+	return sum, true
+}
+
 // ComputeEqualSplit divides totalCents evenly across memberIDs.
 func ComputeEqualSplit(totalCents int64, memberIDs []string) ([]Split, error) {
 	weights := make([]int64, len(memberIDs))
@@ -129,7 +138,11 @@ func ComputeExactSplit(totalCents int64, entries []ExactEntry) ([]Split, error) 
 		if e.AmountCents < 0 {
 			return nil, ErrNegativeAmount
 		}
-		total += e.AmountCents
+		var ok bool
+		total, ok = addChecked(total, e.AmountCents)
+		if !ok {
+			return nil, ErrOverflow
+		}
 		splits[i] = Split{MemberID: e.MemberID, AmountCents: e.AmountCents}
 	}
 	if total != totalCents {
@@ -146,7 +159,11 @@ func ComputePercentSplit(totalCents int64, entries []PercentEntry) ([]Split, err
 	for i, e := range entries {
 		ids[i] = e.MemberID
 		weights[i] = e.BasisPoints
-		bpSum += e.BasisPoints
+		var ok bool
+		bpSum, ok = addChecked(bpSum, e.BasisPoints)
+		if !ok {
+			return nil, ErrOverflow
+		}
 	}
 	if len(entries) > 0 && bpSum != 10000 {
 		// check non-positive first so the more specific error wins

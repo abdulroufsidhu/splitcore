@@ -2,6 +2,7 @@ package balance
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/abdulroufsidhu/slice_pay/splitcore/money"
@@ -160,6 +161,28 @@ func TestComputeBalances(t *testing.T) {
 				t.Errorf("balances sum to %d, want 0", sum)
 			}
 		})
+	}
+}
+
+// TestComputeBalancesOverflow guards against F3: a split-sum wraparound
+// must be rejected as ErrOverflow rather than slipping past
+// ErrSplitSumMismatch by coincidentally wrapping back to the expense
+// amount.
+func TestComputeBalancesOverflow(t *testing.T) {
+	expenses := []Expense{
+		{
+			PayerID:     "a",
+			AmountCents: 100,
+			Splits: []money.Split{
+				{MemberID: "a", AmountCents: math.MaxInt64},
+				{MemberID: "b", AmountCents: math.MaxInt64},
+				{MemberID: "c", AmountCents: 102},
+			},
+		},
+	}
+	_, err := ComputeBalances(expenses, nil)
+	if !errors.Is(err, ErrOverflow) {
+		t.Fatalf("want ErrOverflow, got %v", err)
 	}
 }
 

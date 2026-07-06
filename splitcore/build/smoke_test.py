@@ -3,7 +3,6 @@
 import ctypes
 import json
 import os
-import sys
 
 so_path = os.path.join(os.path.dirname(__file__), "out", "linux", "libsplitcore.so")
 lib = ctypes.CDLL(so_path)

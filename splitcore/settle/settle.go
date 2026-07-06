@@ -9,7 +9,17 @@ import "errors"
 var (
 	ErrUnbalanced      = errors.New("settle: balances do not sum to zero")
 	ErrDuplicateMember = errors.New("settle: duplicate member id")
+	ErrOverflow        = errors.New("settle: balance sum overflows int64")
 )
+
+// addChecked returns a+b and false if the signed addition overflows int64.
+func addChecked(a, b int64) (int64, bool) {
+	sum := a + b
+	if (b > 0 && sum < a) || (b < 0 && sum > a) {
+		return 0, false
+	}
+	return sum, true
+}
 
 // Balance is a member's net position: positive = is owed money,
 // negative = owes money.
@@ -34,7 +44,11 @@ func SimplifyDebts(balances []Balance) ([]Transfer, error) {
 			return nil, ErrDuplicateMember
 		}
 		net[b.MemberID] = b.NetCents
-		sum += b.NetCents
+		var ok bool
+		sum, ok = addChecked(sum, b.NetCents)
+		if !ok {
+			return nil, ErrOverflow
+		}
 	}
 	if sum != 0 {
 		return nil, ErrUnbalanced
@@ -54,6 +68,11 @@ func SimplifyDebts(balances []Balance) ([]Transfer, error) {
 		}
 		if creditor == "" { // all settled
 			return transfers, nil
+		}
+		if debtor == "" || maxDebt == 0 {
+			// Unreachable given the sum==0 check above, but guarded so a
+			// creditor without a matching debtor can never spin forever.
+			return nil, ErrUnbalanced
 		}
 		amount := min(maxCredit, maxDebt)
 		transfers = append(transfers, Transfer{

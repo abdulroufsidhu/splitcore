@@ -2,7 +2,9 @@ package settle
 
 import (
 	"errors"
+	"math"
 	"testing"
+	"time"
 )
 
 // applyTransfers verifies transfers settle the balances to zero.
@@ -130,6 +132,33 @@ func TestSimplifyDebts(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestSimplifyDebtsOverflow guards against F1: a balance sum that wraps
+// to zero via int64 overflow must be rejected, not treated as balanced
+// (which previously sent the greedy loop into an infinite spin). The
+// call is bounded by a timeout so a regression fails fast instead of
+// hanging the test suite forever.
+func TestSimplifyDebtsOverflow(t *testing.T) {
+	balances := []Balance{
+		{"a", math.MaxInt64},
+		{"b", math.MaxInt64},
+		{"c", 2},
+	}
+	done := make(chan struct{})
+	var err error
+	go func() {
+		_, err = SimplifyDebts(balances)
+		close(done)
+	}()
+	select {
+	case <-done:
+		if !errors.Is(err, ErrOverflow) {
+			t.Fatalf("want ErrOverflow, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SimplifyDebts did not return — likely regressed to infinite loop")
 	}
 }
 

@@ -2,6 +2,7 @@ package money
 
 import (
 	"errors"
+	"math"
 	"testing"
 )
 
@@ -170,6 +171,17 @@ func TestComputeExactSplit(t *testing.T) {
 			entries: []ExactEntry{{"a", 0}},
 			wantErr: ErrNonPositiveTotal,
 		},
+		{
+			// F2 regression: two MaxInt64 entries wrap the running sum
+			// past a naive equality check with totalCents; the checked
+			// add must catch this before it can look "balanced".
+			name:  "wrapped sum rejected as overflow",
+			total: 100,
+			entries: []ExactEntry{
+				{"a", math.MaxInt64}, {"b", math.MaxInt64}, {"c", 102},
+			},
+			wantErr: ErrOverflow,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -329,6 +341,29 @@ func TestComputeShareSplit(t *testing.T) {
 				t.Errorf("splits sum %d != total %d", sum(got), tt.total)
 			}
 		})
+	}
+}
+
+func TestComputeShareSplitOverflow(t *testing.T) {
+	// F2/F5: huge shares that wrap weightSum, and a huge total combined
+	// with huge shares that would overflow totalCents*weight — both
+	// must return ErrOverflow rather than a corrupted split.
+	_, err := ComputeShareSplit(math.MaxInt64, []ShareEntry{
+		{"a", math.MaxInt64}, {"b", math.MaxInt64},
+	})
+	if !errors.Is(err, ErrOverflow) {
+		t.Fatalf("want ErrOverflow, got %v", err)
+	}
+}
+
+func TestComputePercentSplitOverflow(t *testing.T) {
+	// F2: basis points summing via wraparound must not slip past the
+	// 10000 check.
+	_, err := ComputePercentSplit(100, []PercentEntry{
+		{"a", math.MaxInt64}, {"b", math.MaxInt64}, {"c", 10002},
+	})
+	if !errors.Is(err, ErrOverflow) {
+		t.Fatalf("want ErrOverflow, got %v", err)
 	}
 }
 

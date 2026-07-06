@@ -89,6 +89,12 @@ func TestSimplifyDebtsJSON(t *testing.T) {
 	if got != `{"transfers":[]}` {
 		t.Errorf("want empty array, got %s", got)
 	}
+
+	// F5: malformed JSON must surface as a parse error, not a panic.
+	got = SimplifyDebtsJSON(`{"balances":`)
+	if !strings.Contains(got, `"error"`) || !strings.Contains(got, "parse") {
+		t.Errorf("want parse error json, got %s", got)
+	}
 }
 
 func TestComputeBalancesJSON(t *testing.T) {
@@ -102,5 +108,11 @@ func TestComputeBalancesJSON(t *testing.T) {
 	got := ComputeBalancesJSON(`{"expenses":[],"settlements":[]}`)
 	if got != `{"balances":[]}` {
 		t.Errorf("want empty array, got %s", got)
+	}
+
+	// F5: malformed JSON must surface as a parse error, not a panic.
+	got = ComputeBalancesJSON(`{"expenses":`)
+	if !strings.Contains(got, `"error"`) || !strings.Contains(got, "parse") {
+		t.Errorf("want parse error json, got %s", got)
 	}
 }

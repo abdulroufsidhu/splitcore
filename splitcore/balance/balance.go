@@ -16,7 +16,17 @@ var (
 	ErrSplitSumMismatch  = errors.New("balance: split entries do not sum to expense amount")
 	ErrNonPositiveAmount = errors.New("balance: amount must be positive")
 	ErrSelfSettlement    = errors.New("balance: settlement from and to must differ")
+	ErrOverflow          = errors.New("balance: amount sum overflows int64")
 )
+
+// addChecked returns a+b and false if the signed addition overflows int64.
+func addChecked(a, b int64) (int64, bool) {
+	sum := a + b
+	if (b > 0 && sum < a) || (b < 0 && sum > a) {
+		return 0, false
+	}
+	return sum, true
+}
 
 // Expense is one paid expense with its split entries.
 type Expense struct {
@@ -43,17 +53,29 @@ func ComputeBalances(expenses []Expense, settlements []Settlement) ([]settle.Bal
 		}
 		var splitSum int64
 		for _, s := range e.Splits {
+			// Zero-amount splits are intentionally allowed here (a member
+			// can be included in a bill while owing nothing), matching
+			// money.ComputeExactSplit's semantics.
 			if s.AmountCents < 0 {
 				return nil, ErrNonPositiveAmount
 			}
-			splitSum += s.AmountCents
+			var ok bool
+			splitSum, ok = addChecked(splitSum, s.AmountCents)
+			if !ok {
+				return nil, ErrOverflow
+			}
 		}
 		if splitSum != e.AmountCents {
 			return nil, ErrSplitSumMismatch
 		}
-		net[e.PayerID] += e.AmountCents
+		var ok bool
+		if net[e.PayerID], ok = addChecked(net[e.PayerID], e.AmountCents); !ok {
+			return nil, ErrOverflow
+		}
 		for _, s := range e.Splits {
-			net[s.MemberID] -= s.AmountCents
+			if net[s.MemberID], ok = addChecked(net[s.MemberID], -s.AmountCents); !ok {
+				return nil, ErrOverflow
+			}
 		}
 	}
 
@@ -64,8 +86,13 @@ func ComputeBalances(expenses []Expense, settlements []Settlement) ([]settle.Bal
 		if s.FromMemberID == s.ToMemberID {
 			return nil, ErrSelfSettlement
 		}
-		net[s.FromMemberID] += s.AmountCents
-		net[s.ToMemberID] -= s.AmountCents
+		var ok bool
+		if net[s.FromMemberID], ok = addChecked(net[s.FromMemberID], s.AmountCents); !ok {
+			return nil, ErrOverflow
+		}
+		if net[s.ToMemberID], ok = addChecked(net[s.ToMemberID], -s.AmountCents); !ok {
+			return nil, ErrOverflow
+		}
 	}
 
 	balances := make([]settle.Balance, 0, len(net))
