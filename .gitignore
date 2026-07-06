@@ -1,0 +1,13 @@
+# build outputs
+splitcore/build/out/
+*.so
+*.dylib
+*.a
+*.h.gch
+libsplitcore.h
+
+# editor/OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
