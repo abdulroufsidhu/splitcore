@@ -11,3 +11,5 @@ libsplitcore.h
 .vscode/
 *.swp
 .DS_Store
+pb_data/
+server/server
