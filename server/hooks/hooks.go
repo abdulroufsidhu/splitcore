@@ -2,8 +2,167 @@
 // counter, and balance recompute into PocketBase record events.
 package hooks
 
-import "github.com/pocketbase/pocketbase/core"
+import (
+	"fmt"
+
+	"github.com/pocketbase/pocketbase/apis"
+	"github.com/pocketbase/pocketbase/core"
+)
 
 // Register binds all app hooks. Called once from main.
 func Register(app core.App) {
+	app.OnRecordCreateRequest("groups").BindFunc(func(e *core.RecordRequestEvent) error {
+		if e.Auth != nil {
+			e.Record.Set("owner", e.Auth.Id)
+		}
+		e.Record.Set("version", 0)
+
+		if err := e.Next(); err != nil {
+			return err
+		}
+		return createOwnerMembership(e.App, e.Record)
+	})
+
+	app.OnRecordUpdateRequest("groups").BindFunc(func(e *core.RecordRequestEvent) error {
+		stored, err := e.App.FindRecordById("groups", e.Record.Id)
+		if err == nil {
+			e.Record.Set("version", stored.GetInt("version"))
+			e.Record.Set("owner", stored.GetString("owner"))
+		}
+		return e.Next()
+	})
+
+	bind := func(e *core.RecordEvent) error {
+		groupID, err := groupIDFor(e.App, e.Record)
+		if err != nil {
+			return err
+		}
+
+		if e.Type != core.ModelEventTypeDelete {
+			if err := validateRecord(e.App, e.Record); err != nil {
+				return err
+			}
+		}
+
+		if err := e.Next(); err != nil {
+			return err
+		}
+
+		if groupID == "" {
+			// Parent expense already gone (cascade-delete ordering) — the
+			// expense's own delete hook already bumped/recomputed.
+			return nil
+		}
+		return bumpAndRecompute(e.App, groupID)
+	}
+	app.OnRecordCreate("expenses", "split_entries", "settlements").BindFunc(bind)
+	app.OnRecordUpdate("expenses", "split_entries", "settlements").BindFunc(bind)
+	app.OnRecordDelete("expenses", "split_entries", "settlements").BindFunc(bind)
+}
+
+// createOwnerMembership adds a group_members row with role "owner" for the
+// group's owner, right after a groups record is created.
+func createOwnerMembership(app core.App, group *core.Record) error {
+	col, err := app.FindCollectionByNameOrId("group_members")
+	if err != nil {
+		return err
+	}
+	m := core.NewRecord(col)
+	m.Set("group", group.Id)
+	m.Set("user", group.GetString("owner"))
+	m.Set("role", "owner")
+	return app.Save(m)
+}
+
+// groupIDFor resolves the owning group id for a record from one of
+// expenses, split_entries, or settlements. For split_entries whose parent
+// expense has already been deleted (cascade-delete ordering), it returns
+// an empty id and no error so the caller can skip recompute silently.
+func groupIDFor(app core.App, record *core.Record) (string, error) {
+	switch record.Collection().Name {
+	case "expenses", "settlements":
+		return record.GetString("group"), nil
+	case "split_entries":
+		expense, err := app.FindRecordById("expenses", record.GetString("expense"))
+		if err != nil {
+			return "", nil
+		}
+		return expense.GetString("group"), nil
+	default:
+		return "", fmt.Errorf("hooks: unsupported collection %q", record.Collection().Name)
+	}
+}
+
+// validateRecord enforces the domain semantics for expenses, split_entries,
+// and settlements records prior to create/update.
+func validateRecord(app core.App, record *core.Record) error {
+	switch record.Collection().Name {
+	case "expenses":
+		return validateExpense(app, record)
+	case "split_entries":
+		return validateSplitEntry(app, record)
+	case "settlements":
+		return validateSettlement(app, record)
+	}
+	return nil
+}
+
+func validateExpense(app core.App, record *core.Record) error {
+	if int64(record.GetInt("amount_cents")) <= 0 {
+		return apis.NewBadRequestError("expense amount_cents must be positive", nil)
+	}
+
+	payer, err := app.FindRecordById("group_members", record.GetString("payer"))
+	if err != nil {
+		return apis.NewBadRequestError("expense payer must be a valid group member", nil)
+	}
+	if payer.GetString("group") != record.GetString("group") {
+		return apis.NewBadRequestError("expense payer must belong to the expense's group", nil)
+	}
+	return nil
+}
+
+func validateSplitEntry(app core.App, record *core.Record) error {
+	if int64(record.GetInt("amount_cents")) < 0 {
+		return apis.NewBadRequestError("split amount_cents must not be negative", nil)
+	}
+
+	expense, err := app.FindRecordById("expenses", record.GetString("expense"))
+	if err != nil {
+		return apis.NewBadRequestError("split_entries.expense must reference an existing expense", nil)
+	}
+
+	member, err := app.FindRecordById("group_members", record.GetString("member"))
+	if err != nil {
+		return apis.NewBadRequestError("split_entries.member must be a valid group member", nil)
+	}
+	if member.GetString("group") != expense.GetString("group") {
+		return apis.NewBadRequestError("split entry member must belong to the expense's group", nil)
+	}
+	return nil
+}
+
+func validateSettlement(app core.App, record *core.Record) error {
+	if int64(record.GetInt("amount_cents")) <= 0 {
+		return apis.NewBadRequestError("settlement amount_cents must be positive", nil)
+	}
+
+	fromID := record.GetString("from_member")
+	toID := record.GetString("to_member")
+	if fromID == toID {
+		return apis.NewBadRequestError("settlement from_member and to_member must differ", nil)
+	}
+
+	groupID := record.GetString("group")
+
+	from, err := app.FindRecordById("group_members", fromID)
+	if err != nil || from.GetString("group") != groupID {
+		return apis.NewBadRequestError("settlement from_member must belong to the settlement's group", nil)
+	}
+
+	to, err := app.FindRecordById("group_members", toID)
+	if err != nil || to.GetString("group") != groupID {
+		return apis.NewBadRequestError("settlement to_member must belong to the settlement's group", nil)
+	}
+	return nil
 }
