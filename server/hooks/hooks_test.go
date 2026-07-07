@@ -3,6 +3,7 @@ package hooks_test
 import (
 	"testing"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 
 	"github.com/abdulroufsidhu/slice_pay/server/internal/testfix"
@@ -54,6 +55,51 @@ func TestVersionIncrementsOnDelete(t *testing.T) {
 	// we only require the version to have moved forward, not an exact +1.
 	if got := f.Version(t); got <= before {
 		t.Fatalf("version after delete = %d, want > %d", got, before)
+	}
+}
+
+// ---------------------------------------------------------------------
+// group delete cascade
+// ---------------------------------------------------------------------
+
+// TestDeletePopulatedGroupSucceeds is a regression test for the bug where
+// deleting a group with expenses/settlements aborted: each cascaded
+// expense/settlement/split_entries delete fired the recompute hook, which
+// looked up the group by id to bump its version — but the group row was
+// already gone (sql.ErrNoRows), aborting the whole delete transaction.
+func TestDeletePopulatedGroupSucceeds(t *testing.T) {
+	f := testfix.New(t)
+	expense := f.CreateExpense(t, f.AliceM, 3000, "exact")
+	f.CreateSplit(t, expense, f.AliceM, 1000)
+	f.CreateSplit(t, expense, f.BobM, 2000)
+	f.CreateSettlement(t, f.BobM, f.AliceM, 500)
+
+	if err := f.App.Delete(f.Group); err != nil {
+		t.Fatalf("delete populated group: %v", err)
+	}
+
+	expenses, err := f.App.FindRecordsByFilter("expenses", "group = {:g}", "", 0, 0, dbx.Params{"g": f.Group.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expenses) != 0 {
+		t.Errorf("expenses remaining after group delete = %d, want 0", len(expenses))
+	}
+
+	settlements, err := f.App.FindRecordsByFilter("settlements", "group = {:g}", "", 0, 0, dbx.Params{"g": f.Group.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(settlements) != 0 {
+		t.Errorf("settlements remaining after group delete = %d, want 0", len(settlements))
+	}
+
+	balances, err := f.App.FindRecordsByFilter("balances", "group = {:g}", "", 0, 0, dbx.Params{"g": f.Group.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(balances) != 0 {
+		t.Errorf("balances remaining after group delete = %d, want 0", len(balances))
 	}
 }
 
@@ -264,5 +310,141 @@ func TestSettlementOverpayAllowed(t *testing.T) {
 	}
 	if balances[f.AliceM.Id] >= 0 {
 		t.Errorf("alice balance after overpay = %d, want negative (sign flipped)", balances[f.AliceM.Id])
+	}
+}
+
+// ---------------------------------------------------------------------
+// group re-parenting rejection
+// ---------------------------------------------------------------------
+
+// newOtherGroup creates a second group (owned by alice) with alice and bob
+// as members, so tests can attempt to move a record into "another group".
+func newOtherGroup(t testing.TB, f *testfix.Fixture) (group, aliceM2, bobM2 *core.Record) {
+	t.Helper()
+
+	groupsCol, err := f.App.FindCollectionByNameOrId("groups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	group = core.NewRecord(groupsCol)
+	group.Set("name", "Other Group")
+	group.Set("currency", "USD")
+	group.Set("owner", f.Alice.Id)
+	if err := f.App.Save(group); err != nil {
+		t.Fatal(err)
+	}
+
+	membersCol, err := f.App.FindCollectionByNameOrId("group_members")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	aliceM2 = core.NewRecord(membersCol)
+	aliceM2.Set("group", group.Id)
+	aliceM2.Set("user", f.Alice.Id)
+	aliceM2.Set("role", "owner")
+	if err := f.App.Save(aliceM2); err != nil {
+		t.Fatal(err)
+	}
+
+	bobM2 = core.NewRecord(membersCol)
+	bobM2.Set("group", group.Id)
+	bobM2.Set("user", f.Bob.Id)
+	bobM2.Set("role", "member")
+	if err := f.App.Save(bobM2); err != nil {
+		t.Fatal(err)
+	}
+
+	return group, aliceM2, bobM2
+}
+
+// refetch re-reads a record by id, exactly as the real PATCH request
+// handler does (apis.recordUpdate calls FindRecordById before applying the
+// request body). Record.Original() only reflects real pre-change state on
+// a record loaded this way — a record that was merely NewRecord()'d and
+// Save()'d in-process never has its originalData refreshed post-insert, so
+// tests must re-fetch before mutating to exercise the re-parent guard
+// faithfully.
+func refetch(t testing.TB, f *testfix.Fixture, collection, id string) *core.Record {
+	t.Helper()
+	r, err := f.App.FindRecordById(collection, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestExpenseGroupChangeRejected(t *testing.T) {
+	f := testfix.New(t)
+	created := f.CreateExpense(t, f.AliceM, 3000, "exact")
+
+	otherGroup, aliceM2, _ := newOtherGroup(t, f)
+
+	expense := refetch(t, f, "expenses", created.Id)
+	// Payer is switched to a member of the new group too, so the only
+	// thing that can fail here is the group re-parent guard itself (not
+	// the pre-existing payer-must-belong-to-group check).
+	expense.Set("group", otherGroup.Id)
+	expense.Set("payer", aliceM2.Id)
+	if err := f.App.Save(expense); err == nil {
+		t.Fatal("expected error re-parenting expense to another group, got nil")
+	}
+}
+
+func TestSettlementGroupChangeRejected(t *testing.T) {
+	f := testfix.New(t)
+	created := f.CreateSettlement(t, f.AliceM, f.BobM, 500)
+
+	otherGroup, aliceM2, bobM2 := newOtherGroup(t, f)
+
+	settlement := refetch(t, f, "settlements", created.Id)
+	settlement.Set("group", otherGroup.Id)
+	settlement.Set("from_member", aliceM2.Id)
+	settlement.Set("to_member", bobM2.Id)
+	if err := f.App.Save(settlement); err == nil {
+		t.Fatal("expected error re-parenting settlement to another group, got nil")
+	}
+}
+
+func TestSplitMovedToExpenseInAnotherGroupRejected(t *testing.T) {
+	f := testfix.New(t)
+	expense1 := f.CreateExpense(t, f.AliceM, 1000, "exact")
+	created := f.CreateSplit(t, expense1, f.AliceM, 500)
+
+	otherGroup, aliceM2, _ := newOtherGroup(t, f)
+
+	expCol, err := f.App.FindCollectionByNameOrId("expenses")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expense2 := core.NewRecord(expCol)
+	expense2.Set("group", otherGroup.Id)
+	expense2.Set("payer", aliceM2.Id)
+	expense2.Set("amount_cents", 1000)
+	expense2.Set("split_type", "exact")
+	if err := f.App.Save(expense2); err != nil {
+		t.Fatal(err)
+	}
+
+	split := refetch(t, f, "split_entries", created.Id)
+	// Member is switched to one valid for expense2's group too, isolating
+	// the failure to the group re-parent guard.
+	split.Set("expense", expense2.Id)
+	split.Set("member", aliceM2.Id)
+	if err := f.App.Save(split); err == nil {
+		t.Fatal("expected error moving split to an expense in another group, got nil")
+	}
+}
+
+func TestSplitMovedToExpenseInSameGroupAllowed(t *testing.T) {
+	f := testfix.New(t)
+	expense1 := f.CreateExpense(t, f.AliceM, 1000, "exact")
+	expense2 := f.CreateExpense(t, f.BobM, 2000, "exact")
+	created := f.CreateSplit(t, expense1, f.AliceM, 500)
+
+	split := refetch(t, f, "split_entries", created.Id)
+	split.Set("expense", expense2.Id)
+	if err := f.App.Save(split); err != nil {
+		t.Fatalf("expected split move between expenses in the same group to succeed, got error: %v", err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -64,7 +65,44 @@ func Register(app core.App) {
 	app.OnRecordUpdate("expenses", "split_entries", "settlements").BindFunc(bind)
 	app.OnRecordDelete("expenses", "split_entries", "settlements").BindFunc(bind)
 
+	app.OnRecordDelete("groups").BindFunc(func(e *core.RecordEvent) error {
+		// PocketBase's built-in delete cascade processes the collections
+		// referencing "groups" in alphabetical order: balances, expenses,
+		// group_members, settlements. expenses.payer and split_entries.member
+		// point at group_members without CascadeDelete, but by the time
+		// group_members is cascade-deleted, every expense (and its
+		// split_entries) already cascaded away — "expenses" sorts before
+		// "group_members". settlements.from_member/to_member also point at
+		// group_members without CascadeDelete, but "settlements" sorts
+		// *after* "group_members", so its rows are still live when
+		// group_members is cascade-deleted, and PocketBase refuses to
+		// delete a group_members row that's still a required reference.
+		// Deleting this group's settlements up front, before the group row
+		// (and its cascade) ever hits the DB, clears that reference first.
+		if err := deleteGroupSettlements(e.App, e.Record.Id); err != nil {
+			return err
+		}
+		return e.Next()
+	})
+
 	registerStaleness(app)
+}
+
+// deleteGroupSettlements deletes every settlements row for groupID. Used to
+// pre-clear settlements' non-cascading references to this group's
+// group_members rows before the group itself (and PocketBase's built-in
+// cascade) is deleted — see the OnRecordDelete("groups") comment above.
+func deleteGroupSettlements(app core.App, groupID string) error {
+	settlements, err := app.FindRecordsByFilter("settlements", "group = {:g}", "", 0, 0, dbx.Params{"g": groupID})
+	if err != nil {
+		return err
+	}
+	for _, s := range settlements {
+		if err := app.Delete(s); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // createOwnerMembership adds a group_members row with role "owner" for the
@@ -109,11 +147,69 @@ func groupIDFor(app core.App, record *core.Record, eventType string) (string, er
 func validateRecord(app core.App, record *core.Record) error {
 	switch record.Collection().Name {
 	case "expenses":
-		return validateExpense(app, record)
+		if err := validateExpense(app, record); err != nil {
+			return err
+		}
+		return rejectGroupReparent(record)
 	case "split_entries":
-		return validateSplitEntry(app, record)
+		if err := validateSplitEntry(app, record); err != nil {
+			return err
+		}
+		return rejectSplitReparent(app, record)
 	case "settlements":
-		return validateSettlement(app, record)
+		if err := validateSettlement(app, record); err != nil {
+			return err
+		}
+		return rejectGroupReparent(record)
+	}
+	return nil
+}
+
+// rejectGroupReparent forbids changing the "group" relation of an existing
+// expenses or settlements record on update. Moving a record between groups
+// would leave the old group's cached balances stale (the recompute only
+// ever touches one group per hook invocation), so it is disallowed outright
+// rather than attempting to recompute both groups.
+//
+// New records (not yet persisted) have no prior group to compare against,
+// so record.Original() is blank and this is a no-op for creates.
+func rejectGroupReparent(record *core.Record) error {
+	if record.IsNew() {
+		return nil
+	}
+	original := record.Original()
+	if original.GetString("group") != "" && original.GetString("group") != record.GetString("group") {
+		return apis.NewBadRequestError("group re-parenting is not allowed", nil)
+	}
+	return nil
+}
+
+// rejectSplitReparent forbids moving a split_entries row to an expense that
+// belongs to a different group than its current expense. Moving a split
+// between two expenses within the same group is legal and unaffected.
+func rejectSplitReparent(app core.App, record *core.Record) error {
+	if record.IsNew() {
+		return nil
+	}
+	original := record.Original()
+	oldExpenseID := original.GetString("expense")
+	newExpenseID := record.GetString("expense")
+	if oldExpenseID == "" || oldExpenseID == newExpenseID {
+		return nil
+	}
+
+	oldExpense, err := app.FindRecordById("expenses", oldExpenseID)
+	if err != nil {
+		// The old parent expense is gone (e.g. cascade-delete ordering) —
+		// nothing to compare against, so let the create/update proceed.
+		return nil
+	}
+	newExpense, err := app.FindRecordById("expenses", newExpenseID)
+	if err != nil {
+		return apis.NewBadRequestError("split_entries.expense must reference an existing expense", nil)
+	}
+	if oldExpense.GetString("group") != newExpense.GetString("group") {
+		return apis.NewBadRequestError("group re-parenting is not allowed", nil)
 	}
 	return nil
 }

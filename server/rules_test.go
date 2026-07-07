@@ -311,9 +311,11 @@ func TestRulesOwnerPatchGroupVersionResetByHook(t *testing.T) {
 	}
 
 	var groupID string
+	var preVersion int
 	scenario.TestAppFactory = func(t testing.TB) *tests.TestApp {
 		f := testfix.New(t)
 		groupID = f.Group.Id
+		preVersion = f.Version(t)
 
 		scenario.URL = "/api/collections/groups/records/" + f.Group.Id
 		scenario.Body = strings.NewReader(`{"version":999}`)
@@ -328,8 +330,8 @@ func TestRulesOwnerPatchGroupVersionResetByHook(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if group.GetInt("version") == 999 {
-			t.Fatalf("stored group version = 999 after PATCH version=999, want unchanged (hook must reset it)")
+		if group.GetInt("version") != preVersion {
+			t.Fatalf("stored group version = %d after PATCH version=999, want unchanged at pre-PATCH value %d", group.GetInt("version"), preVersion)
 		}
 	}
 	scenario.Test(t)

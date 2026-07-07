@@ -1,6 +1,9 @@
 package hooks
 
 import (
+	"database/sql"
+	"errors"
+
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 
@@ -25,6 +28,12 @@ func bumpAndRecompute(app core.App, groupID string) error {
 func bumpAndRecomputeTx(app core.App, groupID string) error {
 	group, err := app.FindRecordById("groups", groupID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// The group row is already gone — its own delete is cascading
+			// into this expense/split/settlement delete right now, so
+			// there is nothing left to bump or recompute.
+			return nil
+		}
 		return err
 	}
 	group.Set("version", group.GetInt("version")+1)
