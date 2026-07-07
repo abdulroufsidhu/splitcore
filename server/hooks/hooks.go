@@ -63,6 +63,8 @@ func Register(app core.App) {
 	app.OnRecordCreate("expenses", "split_entries", "settlements").BindFunc(bind)
 	app.OnRecordUpdate("expenses", "split_entries", "settlements").BindFunc(bind)
 	app.OnRecordDelete("expenses", "split_entries", "settlements").BindFunc(bind)
+
+	registerStaleness(app)
 }
 
 // createOwnerMembership adds a group_members row with role "owner" for the
