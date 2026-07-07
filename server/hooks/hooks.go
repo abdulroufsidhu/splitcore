@@ -3,6 +3,8 @@
 package hooks
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/pocketbase/pocketbase/apis"
@@ -25,15 +27,18 @@ func Register(app core.App) {
 
 	app.OnRecordUpdateRequest("groups").BindFunc(func(e *core.RecordRequestEvent) error {
 		stored, err := e.App.FindRecordById("groups", e.Record.Id)
-		if err == nil {
-			e.Record.Set("version", stored.GetInt("version"))
-			e.Record.Set("owner", stored.GetString("owner"))
+		if err != nil {
+			// Fail closed: never proceed with an update whose version/owner
+			// guard could not be applied.
+			return err
 		}
+		e.Record.Set("version", stored.GetInt("version"))
+		e.Record.Set("owner", stored.GetString("owner"))
 		return e.Next()
 	})
 
 	bind := func(e *core.RecordEvent) error {
-		groupID, err := groupIDFor(e.App, e.Record)
+		groupID, err := groupIDFor(e.App, e.Record, e.Type)
 		if err != nil {
 			return err
 		}
@@ -75,17 +80,21 @@ func createOwnerMembership(app core.App, group *core.Record) error {
 }
 
 // groupIDFor resolves the owning group id for a record from one of
-// expenses, split_entries, or settlements. For split_entries whose parent
-// expense has already been deleted (cascade-delete ordering), it returns
-// an empty id and no error so the caller can skip recompute silently.
-func groupIDFor(app core.App, record *core.Record) (string, error) {
+// expenses, split_entries, or settlements. Only for a split_entries
+// DELETE whose parent expense is already gone (cascade-delete ordering)
+// does it return an empty id and no error so the caller can skip
+// recompute silently; every other lookup failure is propagated.
+func groupIDFor(app core.App, record *core.Record, eventType string) (string, error) {
 	switch record.Collection().Name {
 	case "expenses", "settlements":
 		return record.GetString("group"), nil
 	case "split_entries":
 		expense, err := app.FindRecordById("expenses", record.GetString("expense"))
 		if err != nil {
-			return "", nil
+			if eventType == core.ModelEventTypeDelete && errors.Is(err, sql.ErrNoRows) {
+				return "", nil
+			}
+			return "", err
 		}
 		return expense.GetString("group"), nil
 	default:

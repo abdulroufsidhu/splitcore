@@ -12,7 +12,17 @@ import (
 // balances rows from the current record set. Incomplete expenses
 // (split entries not yet summing to the amount) are skipped — they
 // contribute nothing until the client finishes writing them.
+//
+// The whole bump+rewrite runs in a single transaction so a failure
+// mid-recompute (e.g. during balance reinsertion) can never leave the
+// version bumped alongside partial or missing balances rows.
 func bumpAndRecompute(app core.App, groupID string) error {
+	return app.RunInTransaction(func(txApp core.App) error {
+		return bumpAndRecomputeTx(txApp, groupID)
+	})
+}
+
+func bumpAndRecomputeTx(app core.App, groupID string) error {
 	group, err := app.FindRecordById("groups", groupID)
 	if err != nil {
 		return err
