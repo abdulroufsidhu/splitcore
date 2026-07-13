@@ -23,6 +23,7 @@ class SettlementsApi {
     required String fromMemberId,
     required String toMemberId,
     required int amountCents,
+    String note = '',
   }) async {
     final staleness = await checkStaleness(_pb, groupId: groupId, localVersion: localVersion);
     if (!staleness.current) {
@@ -35,9 +36,20 @@ class SettlementsApi {
         'from_member': fromMemberId,
         'to_member': toMemberId,
         'amount_cents': amountCents,
+        'date': DateTime.now().toUtc().toIso8601String(),
+        'note': note,
       },
     );
     return _settlementFromRecord(record);
+  }
+
+  /// A group's settlements, newest first — powers per-group and global
+  /// activity history alongside [ExpensesApi.listExpenses].
+  Future<List<Settlement>> listSettlements(String groupId) async {
+    final records = await _pb
+        .collection('settlements')
+        .getFullList(filter: "group = '$groupId'", sort: '-date');
+    return [for (final r in records) _settlementFromRecord(r)];
   }
 
   Future<void> _resync(String groupId) async {
@@ -85,5 +97,9 @@ class SettlementsApi {
         fromMemberId: record.getStringValue('from_member'),
         toMemberId: record.getStringValue('to_member'),
         amountCents: record.getIntValue('amount_cents'),
+        // tryParse: settlements written before this field existed have no
+        // date — don't crash listing history over old data.
+        date: DateTime.tryParse(record.getStringValue('date')) ?? DateTime.fromMillisecondsSinceEpoch(0),
+        note: record.getStringValue('note'),
       );
 }

@@ -1,16 +1,15 @@
-// 1f — New group: name, currency (locked once created), members. Real
-// invite-by-email needs a users lookup the default PocketBase `users`
-// rules don't expose to non-superusers (verified: 404) — see
-// display_name.dart. Contacts picker / share-link join are native-app and
-// backend-schema work respectively; out of scope for v1 (flagged in plan).
+// 1f — New group: name, currency (locked once created), members. Members
+// entered here are invited by email right after the group is created —
+// unknown emails auto-join the moment they sign up (see
+// splitcore_sdk's GroupsApi.inviteOrAddMember and the server's
+// /api/splitcore/invite route + invites collection).
 import 'package:flutter/material.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import '../money.dart';
 import '../theme.dart';
 import '../widgets/avatar.dart';
-
-const _currencies = ['USD', 'EUR', 'GBP'];
+import '../widgets/currency_picker.dart';
 
 class NewGroupScreen extends StatefulWidget {
   const NewGroupScreen({super.key, required this.sdk});
@@ -23,9 +22,20 @@ class NewGroupScreen extends StatefulWidget {
 
 class _NewGroupScreenState extends State<NewGroupScreen> {
   final _name = TextEditingController();
+  final _memberEmail = TextEditingController();
+  final List<String> _pendingEmails = [];
   String _currency = 'USD';
   bool _saving = false;
   String? _error;
+
+  void _addPendingEmail() {
+    final email = _memberEmail.text.trim();
+    if (email.isEmpty || _pendingEmails.contains(email)) return;
+    setState(() {
+      _pendingEmails.add(email);
+      _memberEmail.clear();
+    });
+  }
 
   Future<void> _create() async {
     if (_name.text.trim().isEmpty) {
@@ -37,8 +47,21 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
       _error = null;
     });
     try {
-      await widget.sdk.groups.createGroup(name: _name.text.trim(), currency: _currency);
-      if (mounted) Navigator.of(context).pop();
+      final group = await widget.sdk.groups.createGroup(name: _name.text.trim(), currency: _currency);
+      final failures = <String>[];
+      for (final email in _pendingEmails) {
+        try {
+          await widget.sdk.groups.inviteOrAddMember(groupId: group.id, email: email);
+        } catch (_) {
+          failures.add(email);
+        }
+      }
+      if (!mounted) return;
+      if (failures.isNotEmpty) {
+        setState(() => _error = "Group created, but couldn't invite: ${failures.join(', ')}");
+        return;
+      }
+      Navigator.of(context).pop();
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -48,11 +71,13 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final slice = context.slice;
     return Scaffold(
       appBar: AppBar(
+        leadingWidth: 88,
         leading: TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel', style: TextStyle(color: SliceColors.muted)),
+          child: Text('Cancel', style: TextStyle(color: slice.muted)),
         ),
         title: const Text('New group'),
       ),
@@ -62,77 +87,97 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 8),
-            const Text('GROUP NAME', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: SliceColors.muted)),
+            Text('GROUP NAME', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted)),
             const SizedBox(height: 8),
             TextField(
               controller: _name,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: SliceColors.ink),
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: slice.ink),
               decoration: InputDecoration(
                 filled: true,
-                fillColor: SliceColors.card,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: SliceColors.border)),
+                fillColor: slice.card,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: slice.border)),
               ),
             ),
             const SizedBox(height: 20),
-            const Text('CURRENCY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: SliceColors.muted)),
+            Text('CURRENCY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted)),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () async {
+                final picked = await pickCurrency(context, _currency);
+                if (picked != null) setState(() => _currency = picked);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                decoration: BoxDecoration(
+                  color: slice.card,
+                  border: Border.all(color: slice.border),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Text(currencySymbol(_currency), style: moneyStyle(size: 18, color: slice.ink)),
+                    const SizedBox(width: 8),
+                    Text(_currency, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: slice.ink)),
+                    const Spacer(),
+                    Icon(Icons.unfold_more, size: 18, color: slice.muted),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text("One currency per group — this can't be changed later.", style: TextStyle(fontSize: 12, color: slice.muted)),
+            const SizedBox(height: 20),
+            Text('MEMBERS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted)),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(color: slice.card, border: Border.all(color: slice.border), borderRadius: BorderRadius.circular(12)),
+              child: ListTile(
+                leading: Avatar('Y', background: slice.ink, foreground: slice.paper, size: 30),
+                title: const Text('You', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+                trailing: Text('Owner', style: TextStyle(fontSize: 12, color: slice.muted)),
+              ),
+            ),
             const SizedBox(height: 8),
             Row(
               children: [
-                for (final c in _currencies)
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _currency = c),
-                      child: Container(
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: _currency == c ? SliceColors.ink : SliceColors.card,
-                          border: Border.all(color: _currency == c ? SliceColors.ink : SliceColors.border),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Column(
-                          children: [
-                            Text(
-                              currencySymbol(c),
-                              style: moneyStyle(size: 16, color: _currency == c ? SliceColors.paper : SliceColors.ink),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(c, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _currency == c ? SliceColors.paper.withValues(alpha: 0.7) : SliceColors.muted)),
-                          ],
-                        ),
-                      ),
-                    ),
+                Expanded(
+                  child: TextField(
+                    controller: _memberEmail,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(labelText: 'Invite by email'),
+                    onSubmitted: (_) => _addPendingEmail(),
                   ),
+                ),
+                IconButton(icon: const Icon(Icons.add), onPressed: _addPendingEmail),
               ],
             ),
-            const SizedBox(height: 8),
-            const Text("One currency per group — this can't be changed later.", style: TextStyle(fontSize: 12, color: SliceColors.muted)),
-            const SizedBox(height: 20),
-            const Text('MEMBERS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: SliceColors.muted)),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(color: SliceColors.card, border: Border.all(color: SliceColors.border), borderRadius: BorderRadius.circular(12)),
-              child: ListTile(
-                leading: const Avatar('Y', background: SliceColors.ink, foreground: SliceColors.paper, size: 30),
-                title: const Text('You', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
-                trailing: const Text('Owner', style: TextStyle(fontSize: 12, color: SliceColors.muted)),
+            if (_pendingEmails.isNotEmpty)
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final email in _pendingEmails)
+                    Chip(
+                      label: Text(email),
+                      onDeleted: () => setState(() => _pendingEmails.remove(email)),
+                    ),
+                ],
               ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Invite others after creating the group, from group detail — '
-              'they need to already have a SlicePay account.',
-              style: TextStyle(fontSize: 12, color: SliceColors.muted),
+            const SizedBox(height: 4),
+            Text(
+              "If they don't have a SlicePay account yet, they'll join this group "
+              'automatically once they sign up with that email.',
+              style: TextStyle(fontSize: 12, color: slice.muted),
             ),
             if (_error != null) ...[
               const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: SliceColors.negative)),
+              Text(_error!, style: TextStyle(color: slice.negative)),
             ],
             const SizedBox(height: 24),
             FilledButton(
               onPressed: _saving ? null : _create,
               style: FilledButton.styleFrom(
-                backgroundColor: SliceColors.ink,
+                backgroundColor: slice.ink,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
               ),

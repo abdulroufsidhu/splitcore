@@ -182,19 +182,30 @@ class ExpenseInput {
 /// the raw PocketBase RecordModel — the SDK never leaks PocketBase types
 /// across its public boundary.
 class AppUser {
-  const AppUser({required this.id, required this.email});
+  const AppUser({required this.id, required this.email, this.name = '', this.avatarUrl = ''});
 
   final String id;
   final String email;
 
-  @override
-  bool operator ==(Object other) => other is AppUser && other.id == id && other.email == email;
+  /// Empty until the user sets one via `AuthApi.updateProfile`.
+  final String name;
+
+  /// Absolute URL to the avatar image, or '' if unset.
+  final String avatarUrl;
 
   @override
-  int get hashCode => Object.hash(id, email);
+  bool operator ==(Object other) =>
+      other is AppUser &&
+      other.id == id &&
+      other.email == email &&
+      other.name == name &&
+      other.avatarUrl == avatarUrl;
 
   @override
-  String toString() => 'AppUser(id: $id, email: $email)';
+  int get hashCode => Object.hash(id, email, name, avatarUrl);
+
+  @override
+  String toString() => 'AppUser(id: $id, email: $email, name: $name, avatarUrl: $avatarUrl)';
 }
 
 /// A `groups` record. `version` is server/hook-managed, never client-set.
@@ -205,6 +216,7 @@ class Group {
     required this.currency,
     required this.version,
     required this.ownerId,
+    this.isDirect = false,
   });
 
   final String id;
@@ -213,6 +225,10 @@ class Group {
   final int version;
   final String ownerId;
 
+  /// True for a group created via the app's "Add person" one-to-one flow —
+  /// a display hint only, not a different kind of group.
+  final bool isDirect;
+
   @override
   bool operator ==(Object other) =>
       other is Group &&
@@ -220,14 +236,15 @@ class Group {
       other.name == name &&
       other.currency == currency &&
       other.version == version &&
-      other.ownerId == ownerId;
+      other.ownerId == ownerId &&
+      other.isDirect == isDirect;
 
   @override
-  int get hashCode => Object.hash(id, name, currency, version, ownerId);
+  int get hashCode => Object.hash(id, name, currency, version, ownerId, isDirect);
 
   @override
   String toString() =>
-      'Group(id: $id, name: $name, currency: $currency, version: $version, ownerId: $ownerId)';
+      'Group(id: $id, name: $name, currency: $currency, version: $version, ownerId: $ownerId, isDirect: $isDirect)';
 }
 
 /// A `group_members` record.
@@ -237,6 +254,8 @@ class GroupMember {
     required this.groupId,
     required this.userId,
     required this.role,
+    this.name = '',
+    this.avatarUrl = '',
   });
 
   final String id;
@@ -246,20 +265,29 @@ class GroupMember {
   /// Either "owner" or "member" (matches the server's SelectField values).
   final String role;
 
+  /// This member's display name, or '' if they haven't set one (or this
+  /// came from an endpoint that doesn't resolve it, e.g. addMember).
+  final String name;
+
+  /// Absolute URL to this member's avatar image, or '' if unset/unresolved.
+  final String avatarUrl;
+
   @override
   bool operator ==(Object other) =>
       other is GroupMember &&
       other.id == id &&
       other.groupId == groupId &&
       other.userId == userId &&
-      other.role == role;
+      other.role == role &&
+      other.name == name &&
+      other.avatarUrl == avatarUrl;
 
   @override
-  int get hashCode => Object.hash(id, groupId, userId, role);
+  int get hashCode => Object.hash(id, groupId, userId, role, name, avatarUrl);
 
   @override
   String toString() =>
-      'GroupMember(id: $id, groupId: $groupId, userId: $userId, role: $role)';
+      'GroupMember(id: $id, groupId: $groupId, userId: $userId, role: $role, name: $name, avatarUrl: $avatarUrl)';
 }
 
 /// A created `expenses` record.
@@ -366,6 +394,8 @@ class Settlement {
     required this.fromMemberId,
     required this.toMemberId,
     required this.amountCents,
+    required this.date,
+    this.note = '',
   });
 
   final String id;
@@ -373,6 +403,8 @@ class Settlement {
   final String fromMemberId;
   final String toMemberId;
   final int amountCents;
+  final DateTime date;
+  final String note;
 
   @override
   bool operator ==(Object other) =>
@@ -381,15 +413,17 @@ class Settlement {
       other.groupId == groupId &&
       other.fromMemberId == fromMemberId &&
       other.toMemberId == toMemberId &&
-      other.amountCents == amountCents;
+      other.amountCents == amountCents &&
+      other.date == date &&
+      other.note == note;
 
   @override
-  int get hashCode => Object.hash(id, groupId, fromMemberId, toMemberId, amountCents);
+  int get hashCode => Object.hash(id, groupId, fromMemberId, toMemberId, amountCents, date, note);
 
   @override
   String toString() =>
       'Settlement(id: $id, groupId: $groupId, fromMemberId: $fromMemberId, '
-      'toMemberId: $toMemberId, amountCents: $amountCents)';
+      'toMemberId: $toMemberId, amountCents: $amountCents, date: $date, note: $note)';
 }
 
 /// One settlement, as fed into ComputeBalances's {settlements: [...]}.

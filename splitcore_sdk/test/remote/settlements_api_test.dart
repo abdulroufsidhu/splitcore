@@ -66,8 +66,31 @@ void main() {
     expect(settlement.fromMemberId, other.id);
     expect(settlement.toMemberId, payer.id);
     expect(settlement.amountCents, 500);
+    // Date is set server-side on create so history can be sorted by it.
+    expect(settlement.date.difference(DateTime.now()).abs() < const Duration(minutes: 1), isTrue);
     // No staleness -> no resync -> local store was never populated.
     expect(store.snapshotFor(group.id), isNull);
+  });
+
+  test('listSettlements returns a group\'s settlements newest first', () async {
+    final first = await settlementsApi.createSettlement(
+      groupId: group.id,
+      localVersion: group.version,
+      fromMemberId: other.id,
+      toMemberId: payer.id,
+      amountCents: 200,
+    );
+    final second = await settlementsApi.createSettlement(
+      groupId: group.id,
+      localVersion: group.version,
+      fromMemberId: other.id,
+      toMemberId: payer.id,
+      amountCents: 300,
+    );
+
+    final settlements = await settlementsApi.listSettlements(group.id);
+
+    expect(settlements.map((s) => s.id), [second.id, first.id]);
   });
 
   test('resyncs balances into the local store before creating a settlement when stale', () async {

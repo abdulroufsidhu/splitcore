@@ -13,7 +13,7 @@ import 'theme.dart';
 /// host machine's localhost, where `cd server && go run .` serves :8090.
 const _defaultPocketbaseUrl = String.fromEnvironment(
   'POCKETBASE_URL',
-  defaultValue: 'http://10.0.2.2:8090',
+  defaultValue: 'http://192.168.240.1:8090',
 );
 
 /// Bare soname on Android/iOS (resolved from the app's bundled native libs
@@ -60,7 +60,9 @@ class _SlicePayAppState extends State<SlicePayApp> {
     return MaterialApp(
       title: 'SlicePay',
       debugShowCheckedModeBanner: false,
-      theme: sliceTheme(),
+      theme: sliceLightTheme(),
+      darkTheme: sliceDarkTheme(),
+      themeMode: ThemeMode.system,
       home: FutureBuilder<SplitcoreSdk>(
         future: _sdkFuture,
         builder: (context, snapshot) {
@@ -86,6 +88,7 @@ class _SlicePayAppState extends State<SlicePayApp> {
                   sdk.auth.signOut();
                   currentUser.value = null;
                 },
+                onProfileUpdated: (u) => currentUser.value = u,
               );
             },
           );

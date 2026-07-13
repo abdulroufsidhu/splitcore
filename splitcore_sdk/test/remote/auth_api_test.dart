@@ -48,4 +48,15 @@ void main() {
 
     expect(auth.currentUser, isNull);
   });
+
+  test('new user has no name/avatar until updateProfile is called', () async {
+    final user = await auth.signUp(email: 'dave@example.com', password: 'password123');
+    expect(user.name, isEmpty);
+    expect(user.avatarUrl, isEmpty);
+
+    final updated = await auth.updateProfile(name: 'Dave');
+
+    expect(updated.name, 'Dave');
+    expect(auth.currentUser?.name, 'Dave');
+  });
 }

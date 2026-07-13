@@ -42,6 +42,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final slice = context.slice;
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -51,13 +52,13 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
+                Text(
                   'SlicePay',
                   style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.5,
-                    color: SliceColors.ink,
+                    color: slice.ink,
                   ),
                 ),
                 const SizedBox(height: 28),
@@ -74,13 +75,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(_error!, style: const TextStyle(color: SliceColors.negative)),
+                  Text(_error!, style: TextStyle(color: slice.negative)),
                 ],
                 const SizedBox(height: 20),
                 FilledButton(
                   onPressed: _loading ? null : _submit,
                   style: FilledButton.styleFrom(
-                    backgroundColor: SliceColors.ink,
+                    backgroundColor: slice.ink,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
                   ),

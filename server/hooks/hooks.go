@@ -100,6 +100,9 @@ func Register(app core.App) {
 	})
 
 	registerStaleness(app)
+	registerInvite(app)
+	registerInviteAcceptance(app)
+	registerMembers(app)
 }
 
 // deleteGroupSettlements deletes every settlements row for groupID. Used to

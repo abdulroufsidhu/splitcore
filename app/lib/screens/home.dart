@@ -1,29 +1,58 @@
 // 1a — Home: groups & balances. The groups list *is* the app (no tab bar);
 // account/sign-out lives behind the header avatar.
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
+import '../display_name.dart';
+import '../money.dart';
 import '../theme.dart';
 import '../widgets/avatar.dart';
+import '../widgets/currency_picker.dart';
 import '../widgets/money_text.dart';
+import 'activity.dart';
 import 'group_detail.dart';
 import 'new_group.dart';
 
 /// One row's worth of data: the group plus *my* net balance within it.
 class _GroupRow {
-  _GroupRow(this.group, this.myMemberId, this.myNetCents, this.memberCount);
+  _GroupRow(
+    this.group,
+    this.myMemberId,
+    this.myNetCents,
+    this.memberCount,
+    this.directName,
+    this.directAvatarUrl,
+  );
   final Group group;
   final String myMemberId;
   final int myNetCents;
   final int memberCount;
+
+  /// For a direct (1:1) group: the other person's resolved name/avatar
+  /// (see directPersonName) — '' for a regular multi-member group.
+  final String directName;
+  final String directAvatarUrl;
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.sdk, required this.me, required this.onSignedOut});
+  const HomeScreen({
+    super.key,
+    required this.sdk,
+    required this.me,
+    required this.onSignedOut,
+    required this.onProfileUpdated,
+  });
 
   final SplitcoreSdk sdk;
   final AppUser me;
   final VoidCallback onSignedOut;
+
+  /// Called after the user edits their name/avatar, so main.dart can update
+  /// the AppUser it hands down (widget.me here doesn't rebuild on its own).
+  final ValueChanged<AppUser> onProfileUpdated;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -41,12 +70,16 @@ class _HomeScreenState extends State<HomeScreen> {
       final balances = await widget.sdk.balances.getBalances(group.id);
       final myBalances = balances.where((b) => b.memberId == me.id);
       final myNetCents = myBalances.isEmpty ? 0 : myBalances.first.netCents;
-      rows.add(_GroupRow(group, me.id, myNetCents, members.length));
+      final directName = group.isDirect ? directPersonName(members, widget.me, group.name) : '';
+      final directAvatarUrl = group.isDirect ? (otherMember(members, widget.me)?.avatarUrl ?? '') : '';
+      rows.add(_GroupRow(group, me.id, myNetCents, members.length, directName, directAvatarUrl));
     }
     return rows;
   }
 
-  void _refresh() => setState(() => _rows = _load());
+  void _refresh() => setState(() {
+        _rows = _load();
+      });
 
   Map<String, int> _netByCurrency(List<_GroupRow> rows) {
     final totals = <String, int>{};
@@ -58,6 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final slice = context.slice;
     return Scaffold(
       body: SafeArea(
         child: FutureBuilder<List<_GroupRow>>(
@@ -80,22 +114,34 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
+                          Text(
                             'SlicePay',
                             style: TextStyle(
                               fontSize: 26,
                               fontWeight: FontWeight.w800,
                               letterSpacing: -0.5,
-                              color: SliceColors.ink,
+                              color: slice.ink,
                             ),
                           ),
-                          GestureDetector(
-                            onTap: () => _showAccountSheet(context),
-                            child: Avatar(
-                              widget.me.email.isNotEmpty ? widget.me.email[0].toUpperCase() : '?',
-                              background: SliceColors.ink,
-                              foreground: SliceColors.paper,
-                            ),
+                          Row(
+                            children: [
+                              IconButton(
+                                tooltip: 'Activity',
+                                icon: Icon(Icons.receipt_long_outlined, color: slice.ink),
+                                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                                  builder: (_) => ActivityScreen(sdk: widget.sdk, me: widget.me),
+                                )),
+                              ),
+                              GestureDetector(
+                                onTap: () => _showAccountSheet(context),
+                                child: Avatar(
+                                  meInitial(widget.me),
+                                  imageUrl: widget.me.avatarUrl,
+                                  background: slice.ink,
+                                  foreground: slice.paper,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -103,19 +149,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     if (totals.isNotEmpty)
                       Container(
                         padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-                        decoration: const BoxDecoration(
-                          border: Border(bottom: BorderSide(color: SliceColors.border)),
+                        decoration: BoxDecoration(
+                          border: Border(bottom: BorderSide(color: slice.border)),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'OVERALL',
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 letterSpacing: 1.2,
-                                color: SliceColors.muted,
+                                color: slice.muted,
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -131,7 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       const SizedBox(height: 2),
                                       Text(
                                         entry.value >= 0 ? 'owed to you' : 'you owe',
-                                        style: const TextStyle(fontSize: 12, color: SliceColors.muted),
+                                        style: TextStyle(fontSize: 12, color: slice.muted),
                                       ),
                                     ],
                                   ),
@@ -142,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     Expanded(
                       child: rows.isEmpty
-                          ? const Center(child: Text('No groups yet', style: TextStyle(color: SliceColors.muted)))
+                          ? Center(child: Text('No groups yet', style: TextStyle(color: slice.muted)))
                           : ListView.builder(
                               itemCount: rows.length,
                               itemBuilder: (context, i) => _GroupTile(
@@ -163,26 +209,44 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
                 Positioned(
+                  left: 20,
+                  right: 20,
                   bottom: 24,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: FilledButton.icon(
-                      onPressed: () async {
-                        await Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => NewGroupScreen(sdk: widget.sdk),
-                        ));
-                        _refresh();
-                      },
-                      icon: const Icon(Icons.add, color: SliceColors.paper),
-                      label: const Text('New group'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: SliceColors.ink,
-                        foregroundColor: SliceColors.paper,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await _showAddPersonSheet(context);
+                          _refresh();
+                        },
+                        icon: Icon(Icons.person_add_alt_1, color: slice.ink),
+                        label: const Text('Add person'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: slice.ink,
+                          side: BorderSide(color: slice.ink, width: 1.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 10),
+                      FilledButton.icon(
+                        onPressed: () async {
+                          await Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => NewGroupScreen(sdk: widget.sdk),
+                          ));
+                          _refresh();
+                        },
+                        icon: Icon(Icons.add, color: slice.paper),
+                        label: const Text('New group'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: slice.ink,
+                          foregroundColor: slice.paper,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -193,6 +257,80 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// "Add person" = a hidden 2-member group (Splitwise-style), so it reuses
+  /// every existing expense/settle/balance flow — see createGroup(isDirect: true).
+  Future<void> _showAddPersonSheet(BuildContext context) async {
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    var currency = 'USD';
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Add person', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Name'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: 'Email'),
+              ),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: () async {
+                  final picked = await pickCurrency(sheetContext, currency);
+                  if (picked != null) setSheetState(() => currency = picked);
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(labelText: 'Currency'),
+                  child: Text('$currency  ${currencySymbol(currency)}'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => Navigator.of(sheetContext).pop(true),
+                child: const Text('Add'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final personName = nameController.text.trim();
+    final email = emailController.text.trim();
+    if (personName.isEmpty || email.isEmpty) return;
+    try {
+      final group = await widget.sdk.groups.createGroup(
+        name: personName,
+        currency: currency,
+        isDirect: true,
+      );
+      await widget.sdk.groups.inviteOrAddMember(groupId: group.id, email: email);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added $personName')));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+    }
+  }
+
   void _showAccountSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -200,7 +338,19 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(title: Text(widget.me.email)),
+            ListTile(
+              leading: Avatar(meInitial(widget.me), imageUrl: widget.me.avatarUrl, size: 40),
+              title: Text(widget.me.name.isEmpty ? widget.me.email : widget.me.name),
+              subtitle: widget.me.name.isEmpty ? null : Text(widget.me.email),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit profile'),
+              onTap: () {
+                Navigator.of(context).pop();
+                _showEditProfileSheet(context);
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('Sign out'),
@@ -214,6 +364,74 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  Future<void> _showEditProfileSheet(BuildContext context) async {
+    final nameController = TextEditingController(text: widget.me.name);
+    Uint8List? pickedBytes;
+    XFile? pickedFile;
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Edit profile', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              const SizedBox(height: 16),
+              Center(
+                child: GestureDetector(
+                  onTap: () async {
+                    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+                    if (picked == null) return;
+                    final bytes = await picked.readAsBytes();
+                    setSheetState(() {
+                      pickedFile = picked;
+                      pickedBytes = bytes;
+                    });
+                  },
+                  child: pickedBytes != null
+                      ? CircleAvatar(radius: 40, backgroundImage: MemoryImage(pickedBytes!))
+                      : Avatar(meInitial(widget.me), imageUrl: widget.me.avatarUrl, size: 80),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Name'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => Navigator.of(sheetContext).pop(true),
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (saved != true || !context.mounted) return;
+    try {
+      final updated = await widget.sdk.auth.updateProfile(
+        name: nameController.text.trim().isEmpty ? null : nameController.text.trim(),
+        avatarBytes: pickedBytes,
+        avatarFilename: pickedFile?.name,
+      );
+      widget.onProfileUpdated(updated);
+      _refresh();
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+    }
+  }
 }
 
 class _GroupTile extends StatelessWidget {
@@ -224,30 +442,33 @@ class _GroupTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final slice = context.slice;
     final net = row.myNetCents;
+    final isDirect = row.group.isDirect;
+    final title = isDirect ? row.directName : row.group.name;
     return InkWell(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: SliceColors.border)),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: slice.border)),
         ),
         child: Row(
           children: [
-            Avatar(_initials(row.group.name), size: 44),
+            Avatar(_initials(title), imageUrl: isDirect ? row.directAvatarUrl : null, size: 44),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    row.group.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: SliceColors.ink),
+                    title,
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: slice.ink),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${row.memberCount} people · ${row.group.currency}',
-                    style: const TextStyle(fontSize: 12.5, color: SliceColors.muted),
+                    isDirect ? row.group.currency : '${row.memberCount} people · ${row.group.currency}',
+                    style: TextStyle(fontSize: 12.5, color: slice.muted),
                   ),
                 ],
               ),
@@ -259,7 +480,7 @@ class _GroupTile extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   net >= 0 ? "you're owed" : 'you owe',
-                  style: const TextStyle(fontSize: 11, color: SliceColors.muted),
+                  style: TextStyle(fontSize: 11, color: slice.muted),
                 ),
               ],
             ),

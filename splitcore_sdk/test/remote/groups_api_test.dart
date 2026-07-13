@@ -35,6 +35,14 @@ void main() {
     expect(group.ownerId, owner.id);
   });
 
+  test('createGroup defaults isDirect to false, and round-trips true', () async {
+    final defaultGroup = await groups.createGroup(name: 'Regular group', currency: 'USD');
+    expect(defaultGroup.isDirect, isFalse);
+
+    final directGroup = await groups.createGroup(name: 'Sara | Me', currency: 'USD', isDirect: true);
+    expect(directGroup.isDirect, isTrue);
+  });
+
   test('createGroup auto-creates an owner group_members row', () async {
     final owner = auth.currentUser!;
     final group = await groups.createGroup(name: 'Roommates', currency: 'USD');
@@ -67,5 +75,35 @@ void main() {
     expect(member.role, 'member');
     final members = await groups.listMembers(group.id);
     expect(members.map((m) => m.userId), contains(other.id));
+  });
+
+  test('inviteOrAddMember adds an existing user immediately', () async {
+    final group = await groups.createGroup(name: 'Existing user invite', currency: 'USD');
+    final otherEmail = 'existing-${DateTime.now().microsecondsSinceEpoch}@example.com';
+    final other = await AuthApi(PocketBase(server.baseUrl)).signUp(email: otherEmail, password: 'password123');
+
+    final added = await groups.inviteOrAddMember(groupId: group.id, email: otherEmail);
+
+    expect(added, isTrue);
+    final members = await groups.listMembers(group.id);
+    expect(members.map((m) => m.userId), contains(other.id));
+  });
+
+  test('inviteOrAddMember records a pending invite for an unknown email, '
+      'and signing up with that email auto-joins the group', () async {
+    final group = await groups.createGroup(name: 'Future user invite', currency: 'USD');
+    final futureEmail = 'future-${DateTime.now().microsecondsSinceEpoch}@example.com';
+
+    final added = await groups.inviteOrAddMember(groupId: group.id, email: futureEmail);
+    expect(added, isFalse);
+
+    // Not a member yet — the invite is only pending.
+    final beforeSignup = await groups.listMembers(group.id);
+    expect(beforeSignup.length, 1); // just the owner
+
+    final newUser = await AuthApi(PocketBase(server.baseUrl)).signUp(email: futureEmail, password: 'password123');
+
+    final afterSignup = await groups.listMembers(group.id);
+    expect(afterSignup.map((m) => m.userId), contains(newUser.id));
   });
 }

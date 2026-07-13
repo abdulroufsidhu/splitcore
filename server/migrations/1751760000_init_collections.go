@@ -194,9 +194,12 @@ func InitCollections(app core.App) error {
 	return nil
 }
 
-// DropCollections removes all splitcore collections (reverse dependency order).
+// DropCollections removes all splitcore collections (reverse dependency
+// order). "invites" references "groups" (added by a later migration, but
+// tests.NewTestApp() automigrates everything up front), so it must go
+// before "groups" here too, even though its own migration owns it.
 func DropCollections(app core.App) error {
-	for _, name := range []string{"balances", "settlements", "split_entries", "expenses", "group_members", "groups"} {
+	for _, name := range []string{"invites", "balances", "settlements", "split_entries", "expenses", "group_members", "groups"} {
 		col, err := app.FindCollectionByNameOrId(name)
 		if err != nil {
 			continue

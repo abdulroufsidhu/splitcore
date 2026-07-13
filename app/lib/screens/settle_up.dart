@@ -54,6 +54,7 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final slice = context.slice;
     return Scaffold(
       appBar: AppBar(leading: const BackButton()),
       body: FutureBuilder<List<Transfer>>(
@@ -76,19 +77,19 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
                   children: [
                     Text(
                       'Settle ${widget.group.name}',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: SliceColors.muted),
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       transfers.isEmpty
                           ? 'Already settled'
                           : '${transfers.length} payment${transfers.length == 1 ? '' : 's'}\nsettle everything',
-                      style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.6, color: SliceColors.ink, height: 1.15),
+                      style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.6, color: slice.ink, height: 1.15),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       "The fewest possible transfers for this group's balances.",
-                      style: TextStyle(fontSize: 13, color: SliceColors.muted),
+                      style: TextStyle(fontSize: 13, color: slice.muted),
                     ),
                   ],
                 ),
@@ -106,8 +107,8 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
                     return Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: SliceColors.card,
-                        border: Border.all(color: SliceColors.border),
+                        color: slice.card,
+                        border: Border.all(color: slice.border),
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: Column(
@@ -119,7 +120,7 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
                               Expanded(
                                 child: RichText(
                                   text: TextSpan(
-                                    style: const TextStyle(fontSize: 14.5, color: SliceColors.ink),
+                                    style: TextStyle(fontSize: 14.5, color: slice.ink),
                                     children: [
                                       TextSpan(text: displayName(from, widget.me), style: const TextStyle(fontWeight: FontWeight.w700)),
                                       const TextSpan(text: ' pays '),
@@ -137,7 +138,7 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
                             child: FilledButton(
                               onPressed: done ? null : () => _record(i, t),
                               style: FilledButton.styleFrom(
-                                backgroundColor: SliceColors.positive,
+                                backgroundColor: slice.positive,
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
                               ),
                               child: Text(done ? 'Recorded' : 'Record payment'),
@@ -149,12 +150,12 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
                   },
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 6, 20, 24),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
                 child: Text(
                   "Recording a payment updates everyone's balance.\nIt doesn't move money.",
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: SliceColors.muted),
+                  style: TextStyle(fontSize: 12, color: slice.muted),
                 ),
               ),
             ],

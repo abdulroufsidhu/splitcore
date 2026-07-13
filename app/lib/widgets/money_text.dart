@@ -24,13 +24,14 @@ class MoneyText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final slice = context.slice;
     final color = !signed
-        ? SliceColors.ink
+        ? slice.ink
         : cents > 0
-            ? SliceColors.positive
+            ? slice.positive
             : cents < 0
-                ? SliceColors.negative
-                : SliceColors.settled;
+                ? slice.negative
+                : slice.settled;
     final text = signed ? formatSignedMoney(cents, currency) : formatMoney(cents, currency);
     return Text(text, style: moneyStyle(size: size, weight: weight, color: color));
   }
