@@ -178,6 +178,220 @@ class ExpenseInput {
       };
 }
 
+/// A signed-in (or signed-up) PocketBase `users` record, exposed instead of
+/// the raw PocketBase RecordModel — the SDK never leaks PocketBase types
+/// across its public boundary.
+class AppUser {
+  const AppUser({required this.id, required this.email});
+
+  final String id;
+  final String email;
+
+  @override
+  bool operator ==(Object other) => other is AppUser && other.id == id && other.email == email;
+
+  @override
+  int get hashCode => Object.hash(id, email);
+
+  @override
+  String toString() => 'AppUser(id: $id, email: $email)';
+}
+
+/// A `groups` record. `version` is server/hook-managed, never client-set.
+class Group {
+  const Group({
+    required this.id,
+    required this.name,
+    required this.currency,
+    required this.version,
+    required this.ownerId,
+  });
+
+  final String id;
+  final String name;
+  final String currency;
+  final int version;
+  final String ownerId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Group &&
+      other.id == id &&
+      other.name == name &&
+      other.currency == currency &&
+      other.version == version &&
+      other.ownerId == ownerId;
+
+  @override
+  int get hashCode => Object.hash(id, name, currency, version, ownerId);
+
+  @override
+  String toString() =>
+      'Group(id: $id, name: $name, currency: $currency, version: $version, ownerId: $ownerId)';
+}
+
+/// A `group_members` record.
+class GroupMember {
+  const GroupMember({
+    required this.id,
+    required this.groupId,
+    required this.userId,
+    required this.role,
+  });
+
+  final String id;
+  final String groupId;
+  final String userId;
+
+  /// Either "owner" or "member" (matches the server's SelectField values).
+  final String role;
+
+  @override
+  bool operator ==(Object other) =>
+      other is GroupMember &&
+      other.id == id &&
+      other.groupId == groupId &&
+      other.userId == userId &&
+      other.role == role;
+
+  @override
+  int get hashCode => Object.hash(id, groupId, userId, role);
+
+  @override
+  String toString() =>
+      'GroupMember(id: $id, groupId: $groupId, userId: $userId, role: $role)';
+}
+
+/// A created `expenses` record.
+class Expense {
+  const Expense({
+    required this.id,
+    required this.groupId,
+    required this.payerMemberId,
+    required this.description,
+    required this.amountCents,
+    required this.splitType,
+    required this.date,
+  });
+
+  final String id;
+  final String groupId;
+  final String payerMemberId;
+  final String description;
+  final int amountCents;
+  final String splitType;
+  final DateTime date;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Expense &&
+      other.id == id &&
+      other.groupId == groupId &&
+      other.payerMemberId == payerMemberId &&
+      other.description == description &&
+      other.amountCents == amountCents &&
+      other.splitType == splitType &&
+      other.date == date;
+
+  @override
+  int get hashCode =>
+      Object.hash(id, groupId, payerMemberId, description, amountCents, splitType, date);
+
+  @override
+  String toString() =>
+      'Expense(id: $id, groupId: $groupId, payerMemberId: $payerMemberId, '
+      'description: $description, amountCents: $amountCents, splitType: $splitType, date: $date)';
+}
+
+/// A created `split_entries` record.
+class SplitEntry {
+  const SplitEntry({
+    required this.id,
+    required this.expenseId,
+    required this.memberId,
+    required this.amountCents,
+    this.receiptFilename,
+  });
+
+  final String id;
+  final String expenseId;
+  final String memberId;
+  final int amountCents;
+
+  /// Filename of the attached receipt in PocketBase's file storage, or
+  /// null if no receipt is attached.
+  final String? receiptFilename;
+
+  @override
+  bool operator ==(Object other) =>
+      other is SplitEntry &&
+      other.id == id &&
+      other.expenseId == expenseId &&
+      other.memberId == memberId &&
+      other.amountCents == amountCents &&
+      other.receiptFilename == receiptFilename;
+
+  @override
+  int get hashCode => Object.hash(id, expenseId, memberId, amountCents, receiptFilename);
+
+  @override
+  String toString() =>
+      'SplitEntry(id: $id, expenseId: $expenseId, memberId: $memberId, '
+      'amountCents: $amountCents, receiptFilename: $receiptFilename)';
+}
+
+/// Response of GET /api/splitcore/staleness.
+class StalenessResult {
+  const StalenessResult({required this.current, required this.serverVersion});
+
+  final bool current;
+  final int serverVersion;
+
+  @override
+  bool operator ==(Object other) =>
+      other is StalenessResult && other.current == current && other.serverVersion == serverVersion;
+
+  @override
+  int get hashCode => Object.hash(current, serverVersion);
+
+  @override
+  String toString() => 'StalenessResult(current: $current, serverVersion: $serverVersion)';
+}
+
+/// A created `settlements` record.
+class Settlement {
+  const Settlement({
+    required this.id,
+    required this.groupId,
+    required this.fromMemberId,
+    required this.toMemberId,
+    required this.amountCents,
+  });
+
+  final String id;
+  final String groupId;
+  final String fromMemberId;
+  final String toMemberId;
+  final int amountCents;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Settlement &&
+      other.id == id &&
+      other.groupId == groupId &&
+      other.fromMemberId == fromMemberId &&
+      other.toMemberId == toMemberId &&
+      other.amountCents == amountCents;
+
+  @override
+  int get hashCode => Object.hash(id, groupId, fromMemberId, toMemberId, amountCents);
+
+  @override
+  String toString() =>
+      'Settlement(id: $id, groupId: $groupId, fromMemberId: $fromMemberId, '
+      'toMemberId: $toMemberId, amountCents: $amountCents)';
+}
+
 /// One settlement, as fed into ComputeBalances's {settlements: [...]}.
 class SettlementInput {
   const SettlementInput({

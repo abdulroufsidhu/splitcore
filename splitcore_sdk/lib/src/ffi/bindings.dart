@@ -41,7 +41,13 @@ class SplitcoreBindings {
   }
 
   static DynamicLibrary _openLibrary(String libraryPath) {
-    if (!File(libraryPath).existsSync()) {
+    // A bare filename (no path separator) is a soname for the OS loader to
+    // resolve from its own search paths — e.g. an Android app's
+    // nativeLibraryDir, which File.existsSync (a plain relative-to-CWD
+    // check) can't see. Only pre-check existence for actual file paths,
+    // where a clear error beats DynamicLibrary.open's native one.
+    final isBareSoname = !libraryPath.contains('/') && !libraryPath.contains(r'\');
+    if (!isBareSoname && !File(libraryPath).existsSync()) {
       throw ArgumentError.value(libraryPath, 'libraryPath', 'shared library not found');
     }
     return DynamicLibrary.open(libraryPath);

@@ -1,0 +1,103 @@
+import 'package:pocketbase/pocketbase.dart';
+import 'package:splitcore_sdk/src/calc_api.dart';
+import 'package:splitcore_sdk/src/models.dart';
+import 'package:splitcore_sdk/src/remote/auth_api.dart';
+import 'package:splitcore_sdk/src/remote/expenses_api.dart';
+import 'package:splitcore_sdk/src/remote/groups_api.dart';
+import 'package:splitcore_sdk/src/remote/local_store.dart';
+import 'package:splitcore_sdk/src/remote/settlements_api.dart';
+import 'package:test/test.dart';
+
+import '../support/lib_path.dart';
+import '../support/pb_server.dart';
+
+void main() {
+  late PbTestServer server;
+  late PocketBase pb;
+  late GroupsApi groupsApi;
+  late ExpensesApi expensesApi;
+  late SplitcoreCalc calc;
+  late LocalStore store;
+  late SettlementsApi settlementsApi;
+  late Group group;
+  late GroupMember payer;
+  late GroupMember other;
+
+  setUpAll(() async {
+    server = await PbTestServer.start();
+    addTearDown(server.stop);
+  });
+
+  setUp(() async {
+    pb = PocketBase(server.baseUrl);
+    final auth = AuthApi(pb);
+    groupsApi = GroupsApi(pb);
+    calc = SplitcoreCalc.open(resolveLinuxLibPath());
+    expensesApi = ExpensesApi(pb, calc);
+    store = LocalStore();
+    settlementsApi = SettlementsApi(pb, calc, store);
+
+    final ownerUser = await auth.signUp(
+      email: 'settle-owner-${DateTime.now().microsecondsSinceEpoch}@example.com',
+      password: 'password123',
+    );
+    group = await groupsApi.createGroup(name: 'Settle test', currency: 'USD');
+
+    final otherAuth = AuthApi(PocketBase(server.baseUrl));
+    final otherUser = await otherAuth.signUp(
+      email: 'settle-friend-${DateTime.now().microsecondsSinceEpoch}@example.com',
+      password: 'password123',
+    );
+    other = await groupsApi.addMember(groupId: group.id, userId: otherUser.id, role: 'member');
+
+    final members = await groupsApi.listMembers(group.id);
+    payer = members.firstWhere((m) => m.userId == ownerUser.id);
+  });
+
+  test('creates the settlement directly when the local version is current, without resyncing', () async {
+    final settlement = await settlementsApi.createSettlement(
+      groupId: group.id,
+      localVersion: group.version,
+      fromMemberId: other.id,
+      toMemberId: payer.id,
+      amountCents: 500,
+    );
+
+    expect(settlement.fromMemberId, other.id);
+    expect(settlement.toMemberId, payer.id);
+    expect(settlement.amountCents, 500);
+    // No staleness -> no resync -> local store was never populated.
+    expect(store.snapshotFor(group.id), isNull);
+  });
+
+  test('resyncs balances into the local store before creating a settlement when stale', () async {
+    final staleVersion = group.version;
+
+    await expensesApi.createExpense(
+      groupId: group.id,
+      payerMemberId: payer.id,
+      description: 'Groceries',
+      date: DateTime.utc(2026, 7, 1),
+      split: SplitSpec.equal(totalCents: 1000, memberIds: [payer.id, other.id]),
+    );
+    final refreshedGroup = await groupsApi.getGroup(group.id);
+
+    final settlement = await settlementsApi.createSettlement(
+      groupId: group.id,
+      localVersion: staleVersion,
+      fromMemberId: other.id,
+      toMemberId: payer.id,
+      amountCents: 500,
+    );
+
+    expect(settlement.amountCents, 500);
+    final snapshot = store.snapshotFor(group.id);
+    expect(snapshot, isNotNull);
+    expect(snapshot!.version, refreshedGroup.version);
+    expect(
+      snapshot.balances.fold<int>(0, (sum, b) => sum + b.netCents),
+      0,
+      reason: 'balances recomputed from the full log must always sum to zero',
+    );
+  });
+}

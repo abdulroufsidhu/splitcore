@@ -1,0 +1,11 @@
+# Files and directories created by pub/dart.
+.dart_tool/
+.packages
+build/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store

@@ -6,6 +6,11 @@ splitcore/build/out/
 *.h.gch
 libsplitcore.h
 
+# Dart/Flutter (any package in the monorepo, present or future)
+.dart_tool/
+.packages
+build/
+
 # editor/OS
 .idea/
 .vscode/
