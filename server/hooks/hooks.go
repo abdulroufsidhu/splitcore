@@ -79,10 +79,24 @@ func Register(app core.App) {
 		// delete a group_members row that's still a required reference.
 		// Deleting this group's settlements up front, before the group row
 		// (and its cascade) ever hits the DB, clears that reference first.
-		if err := deleteGroupSettlements(e.App, e.Record.Id); err != nil {
-			return err
-		}
-		return e.Next()
+		//
+		// The pre-delete and the group delete itself must share one
+		// transaction: this hook fires in the validation phase, before
+		// OnRecordDeleteExecute opens its own tx, so without the explicit
+		// RunInTransaction here a failed group delete would leave the
+		// settlements permanently gone while the group survived. Nested
+		// RunInTransaction calls reuse the outer tx, so swapping e.App to
+		// txApp for the duration of e.Next() keeps the whole delete
+		// (pre-delete + cascade) atomic.
+		return e.App.RunInTransaction(func(txApp core.App) error {
+			if err := deleteGroupSettlements(txApp, e.Record.Id); err != nil {
+				return err
+			}
+			orig := e.App
+			e.App = txApp
+			defer func() { e.App = orig }()
+			return e.Next()
+		})
 	})
 
 	registerStaleness(app)
@@ -200,9 +214,15 @@ func rejectSplitReparent(app core.App, record *core.Record) error {
 
 	oldExpense, err := app.FindRecordById("expenses", oldExpenseID)
 	if err != nil {
-		// The old parent expense is gone (e.g. cascade-delete ordering) —
-		// nothing to compare against, so let the create/update proceed.
-		return nil
+		if errors.Is(err, sql.ErrNoRows) {
+			// The old parent expense is gone (e.g. cascade-delete
+			// ordering) — nothing to compare against, so let the update
+			// proceed.
+			return nil
+		}
+		// Any other failure means the guard could not be applied — fail
+		// closed rather than silently allowing a potential re-parent.
+		return err
 	}
 	newExpense, err := app.FindRecordById("expenses", newExpenseID)
 	if err != nil {
