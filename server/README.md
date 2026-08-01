@@ -13,6 +13,8 @@ cd server
 go run . serve
 ```
 
+Serves on `http://127.0.0.1:8090` (API at `/api/`, admin UI at `/_/`).
+
 Migrations (`migrations/1751760000_init_collections.go`) create all six
 collections on first run. Under `go run`, `main.go` detects it's running
 from a temp build (`os.Args[0]` prefixed with the OS temp dir) and enables
