@@ -27,6 +27,17 @@ String meInitial(AppUser? me) => (me != null && me.name.isNotEmpty)
         ? me.email[0].toUpperCase()
         : 'Y';
 
+/// Looks up a member by user id or member id — null if not found, e.g. the
+/// current user's membership hasn't propagated yet, or a stale id from a
+/// snapshot taken before someone left. Callers should handle null instead of
+/// crashing (see the old `firstWhere` sites this replaces).
+GroupMember? memberFor(List<GroupMember> members, String id) {
+  for (final m in members) {
+    if (m.userId == id || m.id == id) return m;
+  }
+  return null;
+}
+
 /// The other member of a direct (1:1) group, from [me]'s point of view —
 /// null if they haven't joined yet (pending invite).
 GroupMember? otherMember(List<GroupMember> members, AppUser me) {

@@ -1,6 +1,7 @@
 // The sole facade a Flutter app should ever import. Wires the compute
 // layer (SplitcoreCalc) and the PocketBase remote layer together; the
 // frontend never talks to PocketBase or does split math directly.
+import 'package:http/http.dart' as http;
 import 'package:pocketbase/pocketbase.dart';
 
 import 'calc_api.dart';
@@ -35,9 +36,11 @@ class SplitcoreSdk {
     required String libraryPath,
     AuthStore? authStore,
   }) {
-    final pb = authStore == null
-        ? PocketBase(pocketbaseUrl)
-        : PocketBase(pocketbaseUrl, authStore: authStore);
+    final pb = PocketBase(
+      pocketbaseUrl,
+      authStore: authStore,
+      httpClientFactory: () => _TimeoutClient(http.Client(), const Duration(seconds: 15)),
+    );
     final calc = SplitcoreCalc.open(libraryPath);
     final store = LocalStore();
     return SplitcoreSdk._(
@@ -64,4 +67,17 @@ class SplitcoreSdk {
   /// what createExpense computes internally, exposed so a UI can show the
   /// split live as the user edits it before saving.
   Future<List<Split>> previewSplit(SplitSpec spec) => _calc.computeSplits(spec);
+}
+
+/// Bounds every PocketBase request to [_timeout] — without this a dead/slow
+/// server hangs requests (and their FutureBuilders) forever instead of
+/// surfacing a retry-able error.
+class _TimeoutClient extends http.BaseClient {
+  _TimeoutClient(this._inner, this._timeout);
+  final http.Client _inner;
+  final Duration _timeout;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _inner.send(request).timeout(_timeout);
 }

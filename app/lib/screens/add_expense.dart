@@ -7,6 +7,7 @@
 // The SDK/native side already fully implements exact/percent/shares splits
 // (SplitSpec.exact/.percent/.shares) — this file only had to stop hardcoding
 // SplitSpec.equal for every tab.
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart' hide Split;
@@ -18,6 +19,7 @@ import '../money.dart';
 import '../theme.dart';
 import '../widgets/avatar.dart';
 import '../widgets/money_text.dart';
+import '../widgets/page_body.dart';
 
 enum _SplitType { equal, exact, percent, shares }
 
@@ -43,7 +45,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
   _SplitType _splitType = _SplitType.equal;
-  late String _payerMemberId = widget.members.firstWhere((m) => m.userId == widget.me.id).id;
+  late String _payerMemberId = memberFor(widget.members, widget.me.id)?.id ??
+      (widget.members.isNotEmpty ? widget.members.first.id : '');
   final Map<String, TextEditingController> _exactControllers = {};
   final Map<String, TextEditingController> _percentControllers = {};
   final Map<String, TextEditingController> _shareControllers = {};
@@ -51,6 +54,25 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   Uint8List? _receiptBytes;
   bool _saving = false;
   String? _error;
+  Timer? _previewDebounce;
+  int _previewRequest = 0;
+
+  @override
+  void dispose() {
+    _previewDebounce?.cancel();
+    _amountController.dispose();
+    _descriptionController.dispose();
+    for (final c in _exactControllers.values) {
+      c.dispose();
+    }
+    for (final c in _percentControllers.values) {
+      c.dispose();
+    }
+    for (final c in _shareControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
 
   int get _totalCents => ((double.tryParse(_amountController.text) ?? 0) * 100).round();
 
@@ -144,13 +166,24 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     }
   }
 
+  /// Debounced entry point for onChanged handlers — typing fires this on
+  /// every keystroke, so wait for a pause before hitting the FFI/isolate
+  /// preview call rather than firing one per character.
+  void _schedulePreview() {
+    _previewDebounce?.cancel();
+    _previewDebounce = Timer(const Duration(milliseconds: 250), _updatePreview);
+  }
+
   Future<void> _updatePreview() async {
     if (_totalCents <= 0 || _splitValidationError() != null) {
       setState(() => _preview = []);
       return;
     }
+    // Requests can complete out of order (isolate hop); only the latest
+    // request's result is allowed to land.
+    final request = ++_previewRequest;
     final splits = await widget.sdk.previewSplit(_buildSpec());
-    if (mounted) setState(() => _preview = splits);
+    if (mounted && request == _previewRequest) setState(() => _preview = splits);
   }
 
   Future<void> _pickReceipt() async {
@@ -216,7 +249,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -241,7 +274,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: SafeArea(
+        child: PageBody(
+          child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -262,7 +297,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                           style: moneyStyle(size: 40, color: slice.ink),
                           textAlign: TextAlign.center,
                           decoration: const InputDecoration(border: InputBorder.none, hintText: '0.00'),
-                          onChanged: (_) => _updatePreview(),
+                          onChanged: (_) => _schedulePreview(),
                         ),
                       ),
                     ],
@@ -276,7 +311,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            Text('PAID BY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted)),
+            Text('PAID BY', style: sectionLabelStyle(slice.muted)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -290,7 +325,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               ],
             ),
             const SizedBox(height: 18),
-            Text('SPLIT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted)),
+            Text('SPLIT', style: sectionLabelStyle(slice.muted)),
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.all(3),
@@ -337,7 +372,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             const SizedBox(height: 18),
             Row(
               children: [
-                Text('RECEIPT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted)),
+                Text('RECEIPT', style: sectionLabelStyle(slice.muted)),
                 const SizedBox(width: 6),
                 Text('(optional)', style: TextStyle(fontSize: 11, color: slice.muted)),
               ],
@@ -369,6 +404,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             ],
             const SizedBox(height: 40),
           ],
+        ),
+          ),
         ),
       ),
     );
@@ -455,7 +492,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                         suffixText: suffix,
                         border: const OutlineInputBorder(),
                       ),
-                      onChanged: (_) => _updatePreview(),
+                      onChanged: (_) => _schedulePreview(),
                     ),
                   ),
                 ],

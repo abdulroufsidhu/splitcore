@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:pocketbase/pocketbase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
@@ -26,6 +28,10 @@ String _libraryPath() {
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Both font families are bundled (see pubspec.yaml assets/fonts) —
+  // never hit the network for them, so there's no fallback-font flash and
+  // no first-launch failure when offline.
+  GoogleFonts.config.allowRuntimeFetching = false;
   runApp(const SlicePayApp());
 }
 
@@ -36,9 +42,37 @@ class SlicePayApp extends StatefulWidget {
   State<SlicePayApp> createState() => _SlicePayAppState();
 }
 
-class _SlicePayAppState extends State<SlicePayApp> {
+class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
   late final Future<SplitcoreSdk> _sdkFuture = _initSdk();
   final ValueNotifier<AppUser?> currentUser = ValueNotifier(null);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // A token can expire while the app sits backgrounded; without this the
+  // first request after resuming just 401s with no recovery path. Refresh
+  // eagerly on resume (and once at startup, right after loading it below)
+  // instead of waiting for a call to fail.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshSession();
+  }
+
+  Future<void> _refreshSession() async {
+    if (currentUser.value == null) return;
+    final sdk = await _sdkFuture;
+    final refreshed = await sdk.auth.tryRefresh();
+    currentUser.value = refreshed;
+  }
 
   Future<SplitcoreSdk> _initSdk() async {
     final prefs = await SharedPreferences.getInstance();
@@ -52,6 +86,7 @@ class _SlicePayAppState extends State<SlicePayApp> {
       authStore: authStore,
     );
     currentUser.value = sdk.auth.currentUser;
+    unawaited(_refreshSession());
     return sdk;
   }
 

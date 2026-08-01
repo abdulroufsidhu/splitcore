@@ -125,11 +125,28 @@ ThemeData _buildTheme(SliceTheme colors, Brightness brightness) {
         .apply(bodyColor: colors.ink, displayColor: colors.ink),
     extensions: [colors],
   );
+  final pillShape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(999));
   return base.copyWith(
     appBarTheme: AppBarTheme(
       backgroundColor: colors.paper,
       foregroundColor: colors.ink,
       elevation: 0,
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: colors.ink,
+        foregroundColor: colors.paper,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        shape: pillShape,
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: colors.ink,
+        side: BorderSide(color: colors.ink, width: 1.5),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        shape: pillShape,
+      ),
     ),
   );
 }
@@ -137,3 +154,13 @@ ThemeData _buildTheme(SliceTheme colors, Brightness brightness) {
 /// Money font — every figure in the app renders through this.
 TextStyle moneyStyle({double size = 15, FontWeight weight = FontWeight.w600, required Color color}) =>
     GoogleFonts.splineSansMono(fontSize: size, fontWeight: weight, color: color);
+
+/// The small tracked-out uppercase label repeated above every section
+/// ("PAID BY", "SPLIT", "GROUP NAME", ...) — one definition instead of a
+/// copy-pasted TextStyle at each call site.
+TextStyle sectionLabelStyle(Color color) =>
+    TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: color);
+
+/// The large page/screen title ("SlicePay", a group's name, ...).
+TextStyle pageTitleStyle(Color color, {double size = 26}) =>
+    TextStyle(fontSize: size, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: color);

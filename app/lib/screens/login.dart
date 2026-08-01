@@ -23,6 +23,13 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   String? _error;
 
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
   Future<void> _submit() async {
     setState(() {
       _loading = true;
@@ -34,7 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
           : await widget.sdk.auth.signIn(email: _email.text.trim(), password: _password.text);
       widget.onSignedIn(user);
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -52,15 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'SlicePay',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                    color: slice.ink,
-                  ),
-                ),
+                Text('SlicePay', style: pageTitleStyle(slice.ink, size: 32)),
                 const SizedBox(height: 28),
                 TextField(
                   controller: _email,
@@ -80,16 +79,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 20),
                 FilledButton(
                   onPressed: _loading ? null : _submit,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: slice.ink,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                  ),
                   child: _loading
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: slice.paper),
                         )
                       : Text(_isSignUp ? 'Create account' : 'Sign in'),
                 ),

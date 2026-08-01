@@ -40,12 +40,12 @@ class GroupsApi {
     return [
       for (final m in res.cast<Map<String, dynamic>>())
         GroupMember(
-          id: m['id'] as String,
+          id: m['id'] as String? ?? '',
           groupId: groupId,
-          userId: m['user'] as String,
-          role: m['role'] as String,
+          userId: m['user'] as String? ?? '',
+          role: m['role'] as String? ?? 'member',
           name: m['name'] as String? ?? '',
-          avatarUrl: _avatarUrl(m['user'] as String, m['avatar'] as String? ?? ''),
+          avatarUrl: _avatarUrl(m['user'] as String? ?? '', m['avatar'] as String? ?? ''),
         ),
     ];
   }

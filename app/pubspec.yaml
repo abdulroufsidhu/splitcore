@@ -76,6 +76,32 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
+  # Bundled so the app doesn't flash a fallback font (or fail outright
+  # offline) while google_fonts fetches these at runtime on first launch.
+  fonts:
+    - family: Schibsted Grotesk
+      fonts:
+        - asset: assets/fonts/SchibstedGrotesk-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/SchibstedGrotesk-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/SchibstedGrotesk-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/SchibstedGrotesk-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/SchibstedGrotesk-ExtraBold.ttf
+          weight: 800
+    - family: Spline Sans Mono
+      fonts:
+        - asset: assets/fonts/SplineSansMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/SplineSansMono-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/SplineSansMono-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/SplineSansMono-Bold.ttf
+          weight: 700
+
   # To add custom fonts to your application, add a fonts section here,
   # in this "flutter" section. Each entry in this list should have a
   # "family" key with the font family name, and a "fonts" key with a

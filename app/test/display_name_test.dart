@@ -32,4 +32,18 @@ void main() {
     ];
     expect(directPersonName(noName, owner, 'Friend Fatima'), 'Member frie');
   });
+
+  group('memberFor', () {
+    test('finds by userId or by member id', () {
+      expect(memberFor(members, owner.id)?.id, 'm1');
+      expect(memberFor(members, 'm2')?.id, 'm2');
+    });
+
+    test('returns null instead of throwing when no member matches', () {
+      // Regression: this used to be a `firstWhere` that crashed the whole
+      // screen when membership hadn't propagated yet.
+      expect(memberFor(members, 'not-a-member'), isNull);
+      expect(memberFor(<GroupMember>[], owner.id), isNull);
+    });
+  });
 }

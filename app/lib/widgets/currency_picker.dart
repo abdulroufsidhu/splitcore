@@ -27,6 +27,12 @@ class _CurrencyPickerSheetState extends State<_CurrencyPickerSheet> {
   final _query = TextEditingController();
 
   @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final slice = context.slice;
     final q = _query.text.trim().toLowerCase();

@@ -14,7 +14,7 @@ Future<StalenessResult> checkStaleness(
     query: {'group': groupId, 'version': localVersion.toString()},
   );
   return StalenessResult(
-    current: response['current'] as bool,
-    serverVersion: response['serverVersion'] as int,
+    current: response['current'] as bool? ?? false,
+    serverVersion: (response['serverVersion'] as num?)?.toInt() ?? 0,
   );
 }

@@ -54,6 +54,22 @@ class AuthApi {
 
   void signOut() => _pb.authStore.clear();
 
+  /// Refreshes the current session's token (call on app resume/start so a
+  /// long-backgrounded token doesn't sit expired). Returns the refreshed
+  /// user, or null if there's no session to refresh or the refresh failed
+  /// (e.g. the token already expired) — callers should treat null as
+  /// "signed out".
+  Future<AppUser?> tryRefresh() async {
+    if (_pb.authStore.record == null) return null;
+    try {
+      final auth = await _pb.collection('users').authRefresh();
+      return _userFromRecord(auth.record);
+    } catch (_) {
+      _pb.authStore.clear();
+      return null;
+    }
+  }
+
   AppUser _userFromRecord(RecordModel record) => AppUser(
         id: record.id,
         email: record.getStringValue('email'),

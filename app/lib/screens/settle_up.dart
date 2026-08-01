@@ -8,6 +8,8 @@ import '../display_name.dart';
 import '../theme.dart';
 import '../widgets/avatar.dart';
 import '../widgets/money_text.dart';
+import '../widgets/page_body.dart';
+import '../widgets/skeleton.dart';
 
 class SettleUpScreen extends StatefulWidget {
   const SettleUpScreen({
@@ -33,7 +35,7 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
   late final Future<List<Transfer>> _transfers = widget.sdk.settleUp(widget.balances);
   final Set<int> _recorded = {};
 
-  GroupMember _member(String id) => widget.members.firstWhere((m) => m.id == id);
+  GroupMember? _member(String id) => memberFor(widget.members, id);
 
   Future<void> _record(int index, Transfer t) async {
     try {
@@ -57,17 +59,18 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
     final slice = context.slice;
     return Scaffold(
       appBar: AppBar(leading: const BackButton()),
-      body: FutureBuilder<List<Transfer>>(
+      body: SafeArea(
+        child: FutureBuilder<List<Transfer>>(
         future: _transfers,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return const SkeletonList();
           }
           if (snapshot.hasError) {
             return Center(child: Text('Failed to compute settlement: ${snapshot.error}'));
           }
           final transfers = snapshot.data!;
-          return Column(
+          return PageBody(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
@@ -75,10 +78,7 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Settle ${widget.group.name}',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted),
-                    ),
+                    Text('Settle ${widget.group.name}', style: sectionLabelStyle(slice.muted)),
                     const SizedBox(height: 8),
                     Text(
                       transfers.isEmpty
@@ -103,6 +103,7 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
                     final t = transfers[i];
                     final from = _member(t.fromMemberId);
                     final to = _member(t.toMemberId);
+                    if (from == null || to == null) return const SizedBox.shrink();
                     final done = _recorded.contains(i);
                     return Container(
                       padding: const EdgeInsets.all(16),
@@ -137,10 +138,7 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
                             alignment: Alignment.centerRight,
                             child: FilledButton(
                               onPressed: done ? null : () => _record(i, t),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: slice.positive,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                              ),
+                              style: FilledButton.styleFrom(backgroundColor: slice.positive),
                               child: Text(done ? 'Recorded' : 'Record payment'),
                             ),
                           ),
@@ -159,8 +157,9 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
                 ),
               ),
             ],
-          );
+          ));
         },
+        ),
       ),
     );
   }

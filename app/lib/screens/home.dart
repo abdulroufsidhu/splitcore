@@ -12,6 +12,8 @@ import '../theme.dart';
 import '../widgets/avatar.dart';
 import '../widgets/currency_picker.dart';
 import '../widgets/money_text.dart';
+import '../widgets/page_body.dart';
+import '../widgets/skeleton.dart';
 import 'activity.dart';
 import 'group_detail.dart';
 import 'new_group.dart';
@@ -59,27 +61,57 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late Future<List<_GroupRow>> _rows = _load();
+  List<_GroupRow>? _rows;
+  Object? _error;
+  bool _loading = true;
 
-  Future<List<_GroupRow>> _load() async {
-    final groups = await widget.sdk.groups.listMyGroups();
-    final rows = <_GroupRow>[];
-    for (final group in groups) {
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  /// One group's row, or null to skip it (e.g. our membership hasn't
+  /// propagated yet, or the group's data failed to load) — a single bad
+  /// group no longer takes down the whole list.
+  Future<_GroupRow?> _loadRow(Group group) async {
+    try {
       final members = await widget.sdk.groups.listMembers(group.id);
-      final me = members.firstWhere((m) => m.userId == widget.me.id);
+      final me = memberFor(members, widget.me.id);
+      if (me == null) return null;
       final balances = await widget.sdk.balances.getBalances(group.id);
       final myBalances = balances.where((b) => b.memberId == me.id);
       final myNetCents = myBalances.isEmpty ? 0 : myBalances.first.netCents;
       final directName = group.isDirect ? directPersonName(members, widget.me, group.name) : '';
       final directAvatarUrl = group.isDirect ? (otherMember(members, widget.me)?.avatarUrl ?? '') : '';
-      rows.add(_GroupRow(group, me.id, myNetCents, members.length, directName, directAvatarUrl));
+      return _GroupRow(group, me.id, myNetCents, members.length, directName, directAvatarUrl);
+    } catch (_) {
+      return null;
     }
-    return rows;
   }
 
-  void _refresh() => setState(() {
-        _rows = _load();
+  Future<void> _load() async {
+    try {
+      final groups = await widget.sdk.groups.listMyGroups();
+      final rows = await Future.wait(groups.map(_loadRow));
+      if (!mounted) return;
+      setState(() {
+        _rows = [for (final r in rows) if (r != null) r];
+        _error = null;
+        _loading = false;
       });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  void _refresh() {
+    if (mounted) _load();
+  }
 
   Map<String, int> _netByCurrency(List<_GroupRow> rows) {
     final totals = <String, int>{};
@@ -94,18 +126,16 @@ class _HomeScreenState extends State<HomeScreen> {
     final slice = context.slice;
     return Scaffold(
       body: SafeArea(
-        child: FutureBuilder<List<_GroupRow>>(
-          future: _rows,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return Center(child: Text('Failed to load groups: ${snapshot.error}'));
-            }
-            final rows = snapshot.data!;
-            final totals = _netByCurrency(rows);
-            return Stack(
+        child: Builder(builder: (context) {
+          final rows = _rows;
+          if (rows == null && _loading) {
+            return const SkeletonList();
+          }
+          if (rows == null && _error != null) {
+            return Center(child: Text('Failed to load groups: $_error'));
+          }
+          final totals = _netByCurrency(rows!);
+          return PageBody(child: Stack(
               children: [
                 Column(
                   children: [
@@ -114,15 +144,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            'SlicePay',
-                            style: TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.5,
-                              color: slice.ink,
-                            ),
-                          ),
+                          Text('SlicePay', style: pageTitleStyle(slice.ink)),
                           Row(
                             children: [
                               IconButton(
@@ -155,15 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'OVERALL',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 1.2,
-                                color: slice.muted,
-                              ),
-                            ),
+                            Text('OVERALL', style: sectionLabelStyle(slice.muted)),
                             const SizedBox(height: 8),
                             Wrap(
                               spacing: 20,
@@ -187,24 +201,34 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     Expanded(
-                      child: rows.isEmpty
-                          ? Center(child: Text('No groups yet', style: TextStyle(color: slice.muted)))
-                          : ListView.builder(
-                              itemCount: rows.length,
-                              itemBuilder: (context, i) => _GroupTile(
-                                row: rows[i],
-                                onTap: () async {
-                                  await Navigator.of(context).push(MaterialPageRoute(
-                                    builder: (_) => GroupDetailScreen(
-                                      sdk: widget.sdk,
-                                      me: widget.me,
-                                      group: rows[i].group,
-                                    ),
-                                  ));
-                                  _refresh();
-                                },
+                      child: RefreshIndicator(
+                        onRefresh: _load,
+                        child: rows.isEmpty
+                            ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: [
+                                  const SizedBox(height: 120),
+                                  Center(child: Text('No groups yet', style: TextStyle(color: slice.muted))),
+                                ],
+                              )
+                            : ListView.builder(
+                                padding: const EdgeInsets.only(bottom: 100),
+                                itemCount: rows.length,
+                                itemBuilder: (context, i) => _GroupTile(
+                                  row: rows[i],
+                                  onTap: () async {
+                                    await Navigator.of(context).push(MaterialPageRoute(
+                                      builder: (_) => GroupDetailScreen(
+                                        sdk: widget.sdk,
+                                        me: widget.me,
+                                        group: rows[i].group,
+                                      ),
+                                    ));
+                                    _refresh();
+                                  },
+                                ),
                               ),
-                            ),
+                      ),
                     ),
                   ],
                 ),
@@ -222,12 +246,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                         icon: Icon(Icons.person_add_alt_1, color: slice.ink),
                         label: const Text('Add person'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: slice.ink,
-                          side: BorderSide(color: slice.ink, width: 1.5),
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                        ),
                       ),
                       const SizedBox(width: 10),
                       FilledButton.icon(
@@ -239,20 +257,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                         icon: Icon(Icons.add, color: slice.paper),
                         label: const Text('New group'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: slice.ink,
-                          foregroundColor: slice.paper,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                        ),
                       ),
                     ],
                   ),
                 ),
               ],
-            );
-          },
-        ),
+            ));
+        }),
       ),
     );
   }
@@ -312,9 +323,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    if (confirmed != true || !context.mounted) return;
     final personName = nameController.text.trim();
     final email = emailController.text.trim();
+    nameController.dispose();
+    emailController.dispose();
+    if (confirmed != true || !context.mounted) return;
     if (personName.isEmpty || email.isEmpty) return;
     try {
       final group = await widget.sdk.groups.createGroup(
@@ -418,10 +431,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+    final newName = nameController.text.trim();
+    nameController.dispose();
     if (saved != true || !context.mounted) return;
     try {
       final updated = await widget.sdk.auth.updateProfile(
-        name: nameController.text.trim().isEmpty ? null : nameController.text.trim(),
+        name: newName.isEmpty ? null : newName,
         avatarBytes: pickedBytes,
         avatarFilename: pickedFile?.name,
       );

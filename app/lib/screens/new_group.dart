@@ -10,6 +10,7 @@ import '../money.dart';
 import '../theme.dart';
 import '../widgets/avatar.dart';
 import '../widgets/currency_picker.dart';
+import '../widgets/page_body.dart';
 
 class NewGroupScreen extends StatefulWidget {
   const NewGroupScreen({super.key, required this.sdk});
@@ -27,6 +28,13 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
   String _currency = 'USD';
   bool _saving = false;
   String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _memberEmail.dispose();
+    super.dispose();
+  }
 
   void _addPendingEmail() {
     final email = _memberEmail.text.trim();
@@ -63,7 +71,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
       }
       Navigator.of(context).pop();
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -81,13 +89,15 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
         ),
         title: const Text('New group'),
       ),
-      body: SingleChildScrollView(
+      body: SafeArea(
+        child: PageBody(
+          child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 8),
-            Text('GROUP NAME', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted)),
+            Text('GROUP NAME', style: sectionLabelStyle(slice.muted)),
             const SizedBox(height: 8),
             TextField(
               controller: _name,
@@ -99,7 +109,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Text('CURRENCY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted)),
+            Text('CURRENCY', style: sectionLabelStyle(slice.muted)),
             const SizedBox(height: 8),
             GestureDetector(
               onTap: () async {
@@ -127,7 +137,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
             const SizedBox(height: 8),
             Text("One currency per group — this can't be changed later.", style: TextStyle(fontSize: 12, color: slice.muted)),
             const SizedBox(height: 20),
-            Text('MEMBERS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: slice.muted)),
+            Text('MEMBERS', style: sectionLabelStyle(slice.muted)),
             const SizedBox(height: 8),
             Container(
               decoration: BoxDecoration(color: slice.card, border: Border.all(color: slice.border), borderRadius: BorderRadius.circular(12)),
@@ -176,17 +186,14 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
             const SizedBox(height: 24),
             FilledButton(
               onPressed: _saving ? null : _create,
-              style: FilledButton.styleFrom(
-                backgroundColor: slice.ink,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-              ),
               child: _saving
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: slice.paper))
                   : const Text('Create group'),
             ),
             const SizedBox(height: 40),
           ],
+        ),
+          ),
         ),
       ),
     );

@@ -8,6 +8,8 @@ import '../display_name.dart';
 import '../money.dart';
 import '../theme.dart';
 import '../widgets/money_text.dart';
+import '../widgets/page_body.dart';
+import '../widgets/skeleton.dart';
 import 'add_expense.dart';
 import 'receipt_viewer.dart';
 import 'settle_up.dart';
@@ -24,26 +26,47 @@ class GroupDetailScreen extends StatefulWidget {
 }
 
 class _GroupDetailScreenState extends State<GroupDetailScreen> {
-  late Future<_GroupData> _data = _load();
+  _GroupData? _data;
+  Object? _error;
+  bool _loading = true;
 
-  Future<_GroupData> _load() async {
-    final members = await widget.sdk.groups.listMembers(widget.group.id);
-    final balances = await widget.sdk.balances.getBalances(widget.group.id);
-    final expenses = await widget.sdk.expenses.listExpenses(widget.group.id);
-    final settlements = await widget.sdk.settlements.listSettlements(widget.group.id);
-    final activity = buildActivity(
-      group: widget.group,
-      members: members,
-      me: widget.me,
-      expenses: expenses,
-      settlements: settlements,
-    );
-    return _GroupData(members, balances, activity);
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
 
-  void _refresh() => setState(() {
-        _data = _load();
+  Future<void> _load() async {
+    try {
+      final members = await widget.sdk.groups.listMembers(widget.group.id);
+      final balances = await widget.sdk.balances.getBalances(widget.group.id);
+      final expenses = await widget.sdk.expenses.listExpenses(widget.group.id);
+      final settlements = await widget.sdk.settlements.listSettlements(widget.group.id);
+      final activity = buildActivity(
+        group: widget.group,
+        members: members,
+        me: widget.me,
+        expenses: expenses,
+        settlements: settlements,
+      );
+      if (!mounted) return;
+      setState(() {
+        _data = _GroupData(members, balances, activity);
+        _error = null;
+        _loading = false;
       });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  void _refresh() {
+    if (mounted) _load();
+  }
 
   Future<void> _openReceiptIfAny(BuildContext context, Expense expense) async {
     final entries = await widget.sdk.expenses.listSplitEntries(expense.id);
@@ -88,20 +111,21 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<_GroupData>(
-        future: _data,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+      body: SafeArea(child: Builder(builder: (context) {
+          final loaded = _data;
+          if (loaded == null && _loading) {
+            return const SkeletonList();
           }
-          if (snapshot.hasError) {
-            return Center(child: Text('Failed to load group: ${snapshot.error}'));
+          if (loaded == null && _error != null) {
+            return Center(child: Text('Failed to load group: $_error'));
           }
-          final data = snapshot.data!;
+          final data = loaded!;
           final title = widget.group.isDirect
               ? directPersonName(data.members, widget.me, widget.group.name)
               : widget.group.name;
-          return Stack(
+          return RefreshIndicator(
+            onRefresh: _load,
+            child: PageBody(child: Stack(
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -111,15 +135,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          title,
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.4,
-                            color: slice.ink,
-                          ),
-                        ),
+                        Text(title, style: pageTitleStyle(slice.ink, size: 24)),
                         const SizedBox(height: 2),
                         Text(
                           data.members.map((m) => displayName(m, widget.me)).join(', '),
@@ -136,11 +152,13 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                     ),
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 16),
-                      child: Row(
-                        children: [
-                          for (final member in data.members)
-                            Expanded(
-                              child: Container(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final member in data.members)
+                              Container(
+                                width: 120,
                                 margin: const EdgeInsets.only(right: 8),
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                 decoration: BoxDecoration(
@@ -161,8 +179,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                                   ],
                                 ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -223,12 +241,6 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                         },
                         icon: Icon(Icons.add, color: slice.paper),
                         label: const Text('Add expense'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: slice.ink,
-                          foregroundColor: slice.paper,
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -246,12 +258,6 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                           ));
                           _refresh();
                         },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: slice.ink,
-                          side: BorderSide(color: slice.ink, width: 1.5),
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                        ),
                         child: const Text('Settle up'),
                       ),
                     ),
@@ -259,9 +265,9 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                 ),
               ),
             ],
+            )),
           );
-        },
-      ),
+      })),
     );
   }
 
@@ -298,6 +304,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
         ),
       ),
     );
+    emailController.dispose();
     if (result == null || result.isEmpty || !context.mounted) return;
     try {
       final added = await widget.sdk.groups.inviteOrAddMember(groupId: widget.group.id, email: result);
