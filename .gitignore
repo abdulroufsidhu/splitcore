@@ -10,6 +10,9 @@ libsplitcore.h
 .dart_tool/
 .packages
 build/
+# ...but splitcore/build holds the native build *scripts*, not outputs.
+# Only its out/ subtree is generated (excluded at the top of this file).
+!splitcore/build/
 
 # editor/OS
 .idea/
