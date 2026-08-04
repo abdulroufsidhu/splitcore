@@ -26,3 +26,8 @@ linter:
 
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options
+
+# Match the repository-wide width used by `make fmt` / `make fmt-check`,
+# so an IDE format-on-save and CI agree without anyone passing a flag.
+formatter:
+  page_width: 100

@@ -4,3 +4,8 @@ linter:
   rules:
     - prefer_final_locals
     - avoid_print
+
+# Match the repository-wide width used by `make fmt` / `make fmt-check`,
+# so an IDE format-on-save and CI agree without anyone passing a flag.
+formatter:
+  page_width: 100
