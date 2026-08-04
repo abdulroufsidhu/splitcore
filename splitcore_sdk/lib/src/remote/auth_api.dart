@@ -13,6 +13,13 @@ class AuthApi {
 
   final PocketBase _pb;
 
+  /// The refresh currently in flight, if any. The app refreshes both at
+  /// startup and on every resume, so two refreshes routinely overlap; each
+  /// redundant authRefresh is another chance for one call's failure
+  /// handler to clear the session while another is still succeeding.
+  /// Collapsing them onto one future removes both the waste and the race.
+  Future<AppUser?>? _inFlightRefresh;
+
   AppUser? get currentUser {
     final record = _pb.authStore.record;
     if (record == null) return null;
@@ -65,8 +72,14 @@ class AuthApi {
   /// user, or null if there's no session to refresh or the refresh failed
   /// (e.g. the token already expired) — callers should treat null as
   /// "signed out".
-  Future<AppUser?> tryRefresh() async {
-    if (_pb.authStore.record == null) return null;
+  /// Concurrent calls share one request: the second caller awaits the
+  /// first's result rather than issuing its own.
+  Future<AppUser?> tryRefresh() {
+    if (_pb.authStore.record == null) return Future.value(null);
+    return _inFlightRefresh ??= _refresh().whenComplete(() => _inFlightRefresh = null);
+  }
+
+  Future<AppUser?> _refresh() async {
     try {
       final auth = await _pb.collection('users').authRefresh();
       return _userFromRecord(auth.record);
