@@ -4,7 +4,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
-import 'package:app/display_name.dart';
+import 'package:splitcore_app/display_name.dart';
 
 void main() {
   final owner = AppUser(id: 'owner-1', email: 'owner@example.com', name: 'Owner Olivia');

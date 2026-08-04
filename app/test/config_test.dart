@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:app/config.dart';
+import 'package:splitcore_app/config.dart';
 
 void main() {
   test('an explicit --dart-define wins on every platform', () {

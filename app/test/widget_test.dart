@@ -4,8 +4,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:app/theme.dart';
-import 'package:app/widgets/money_text.dart';
+import 'package:splitcore_app/theme.dart';
+import 'package:splitcore_app/widgets/money_text.dart';
 
 void main() {
   testWidgets('MoneyText colors by sign and formats +/- with currency symbol', (tester) async {
