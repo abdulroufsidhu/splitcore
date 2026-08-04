@@ -39,16 +39,33 @@ class ExpensesApi {
           },
         );
 
-    for (final s in splits) {
-      await _pb
-          .collection('split_entries')
-          .create(
-            body: {
-              'expense': expenseRecord.id,
-              'member': s.memberId,
-              'amount_cents': s.amountCents,
-            },
-          );
+    // PocketBase gives the client no multi-record transaction, so an
+    // expense and its split entries cannot be written in one shot. Without
+    // compensation, a failure partway through the loop leaves an expense
+    // whose splits do not sum to its total — the server then permanently
+    // skips it during balance recompute (see server/hooks/recompute.go),
+    // so it shows in the list, counts for nothing, and can only be removed
+    // by hand. Deleting the parent unwinds the whole write: split_entries
+    // cascade off expenses.
+    try {
+      for (final s in splits) {
+        await _pb
+            .collection('split_entries')
+            .create(
+              body: {
+                'expense': expenseRecord.id,
+                'member': s.memberId,
+                'amount_cents': s.amountCents,
+              },
+            );
+      }
+    } catch (_) {
+      // Best-effort: if the rollback itself fails (server unreachable),
+      // rethrow the original failure — it is the one the caller can act on.
+      try {
+        await _pb.collection('expenses').delete(expenseRecord.id);
+      } catch (_) {}
+      rethrow;
     }
 
     return _expenseFromRecord(expenseRecord);
