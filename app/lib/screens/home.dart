@@ -8,7 +8,9 @@ import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import '../display_name.dart';
 import '../money.dart';
+import '../loadable.dart';
 import '../theme.dart';
+import '../widgets/async_section.dart';
 import '../widgets/avatar.dart';
 import '../widgets/currency_picker.dart';
 import '../widgets/money_text.dart';
@@ -19,8 +21,10 @@ import 'group_detail.dart';
 import 'new_group.dart';
 
 /// One row's worth of data: the group plus *my* net balance within it.
-class _GroupRow {
-  _GroupRow(
+/// One row's worth of data. Public so a widget test can build fixtures
+/// without an SDK.
+class GroupRow {
+  GroupRow(
     this.group,
     this.myMemberId,
     this.myNetCents,
@@ -46,9 +50,11 @@ class HomeScreen extends StatefulWidget {
     required this.me,
     required this.onSignedOut,
     required this.onProfileUpdated,
+    this.loadOverride,
   });
 
-  final SplitcoreSdk sdk;
+  /// Null only in widget tests, which supply [loadOverride] instead.
+  final SplitcoreSdk? sdk;
   final AppUser me;
   final VoidCallback onSignedOut;
 
@@ -56,69 +62,66 @@ class HomeScreen extends StatefulWidget {
   /// the AppUser it hands down (widget.me here doesn't rebuild on its own).
   final ValueChanged<AppUser> onProfileUpdated;
 
+  /// Test seam: supplies the group rows without an SDK or a server.
+  @visibleForTesting
+  final Future<List<GroupRow>> Function()? loadOverride;
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<_GroupRow>? _rows;
-  Object? _error;
-  bool _loading = true;
+  late final Loadable<List<GroupRow>> _rows = Loadable(widget.loadOverride ?? _fetchRows);
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _rows.load();
+  }
+
+  @override
+  void dispose() {
+    _rows.dispose();
+    super.dispose();
   }
 
   /// One group's row, or null to skip it (e.g. our membership hasn't
   /// propagated yet, or the group's data failed to load) — a single bad
   /// group no longer takes down the whole list.
-  Future<_GroupRow?> _loadRow(Group group) async {
+  Future<GroupRow?> _loadRow(Group group) async {
     try {
-      final members = await widget.sdk.groups.listMembers(group.id);
+      final members = await widget.sdk!.groups.listMembers(group.id);
       final me = memberFor(members, widget.me.id);
       if (me == null) return null;
-      final balances = await widget.sdk.balances.getBalances(group.id);
+      final balances = await widget.sdk!.balances.getBalances(group.id);
       final myBalances = balances.where((b) => b.memberId == me.id);
       final myNetCents = myBalances.isEmpty ? 0 : myBalances.first.netCents;
       final directName = group.isDirect ? directPersonName(members, widget.me, group.name) : '';
       final directAvatarUrl = group.isDirect
           ? (otherMember(members, widget.me)?.avatarUrl ?? '')
           : '';
-      return _GroupRow(group, me.id, myNetCents, members.length, directName, directAvatarUrl);
+      return GroupRow(group, me.id, myNetCents, members.length, directName, directAvatarUrl);
     } catch (_) {
       return null;
     }
   }
 
-  Future<void> _load() async {
-    try {
-      final groups = await widget.sdk.groups.listMyGroups();
-      final rows = await Future.wait(groups.map(_loadRow));
-      if (!mounted) return;
-      setState(() {
-        _rows = [
-          for (final r in rows)
-            if (r != null) r,
-        ];
-        _error = null;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e;
-        _loading = false;
-      });
-    }
+  Future<List<GroupRow>> _fetchRows() async {
+    final groups = await widget.sdk!.groups.listMyGroups();
+    final rows = await Future.wait(groups.map(_loadRow));
+    return [
+      for (final r in rows)
+        if (r != null) r,
+    ];
   }
+
+  Future<void> _load() => _rows.load();
 
   void _refresh() {
     if (mounted) _load();
   }
 
-  Map<String, int> _netByCurrency(List<_GroupRow> rows) {
+  Map<String, int> _netByCurrency(List<GroupRow> rows) {
     final totals = <String, int>{};
     for (final r in rows) {
       totals[r.group.currency] = (totals[r.group.currency] ?? 0) + r.myNetCents;
@@ -131,16 +134,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final slice = context.slice;
     return Scaffold(
       body: SafeArea(
-        child: Builder(
-          builder: (context) {
-            final rows = _rows;
-            if (rows == null && _loading) {
-              return const SkeletonList();
-            }
-            if (rows == null && _error != null) {
-              return Center(child: Text('Failed to load groups: $_error'));
-            }
-            final totals = _netByCurrency(rows!);
+        child: AsyncSection<List<GroupRow>>(
+          loadable: _rows,
+          errorLabel: "Couldn't load your groups.",
+          skeleton: const SkeletonList(),
+          builder: (context, rows) {
+            final totals = _netByCurrency(rows);
             return PageBody(
               child: Stack(
                 children: [
@@ -268,7 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         FilledButton.icon(
                           onPressed: () async {
                             await Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => NewGroupScreen(sdk: widget.sdk)),
+                              MaterialPageRoute(builder: (_) => NewGroupScreen(sdk: widget.sdk!)),
                             );
                             _refresh();
                           },
@@ -349,12 +348,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed != true || !context.mounted) return;
     if (personName.isEmpty || email.isEmpty) return;
     try {
-      final group = await widget.sdk.groups.createGroup(
+      final group = await widget.sdk!.groups.createGroup(
         name: personName,
         currency: currency,
         isDirect: true,
       );
-      await widget.sdk.groups.inviteOrAddMember(groupId: group.id, email: email);
+      await widget.sdk!.groups.inviteOrAddMember(groupId: group.id, email: email);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added $personName')));
     } catch (e) {
@@ -457,7 +456,7 @@ class _HomeScreenState extends State<HomeScreen> {
     nameController.dispose();
     if (saved != true || !context.mounted) return;
     try {
-      final updated = await widget.sdk.auth.updateProfile(
+      final updated = await widget.sdk!.auth.updateProfile(
         name: newName.isEmpty ? null : newName,
         avatarBytes: pickedBytes,
         avatarFilename: pickedFile?.name,
@@ -474,7 +473,7 @@ class _HomeScreenState extends State<HomeScreen> {
 class _GroupTile extends StatelessWidget {
   const _GroupTile({required this.row, required this.onTap});
 
-  final _GroupRow row;
+  final GroupRow row;
   final VoidCallback onTap;
 
   @override
