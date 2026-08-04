@@ -19,19 +19,12 @@ const _devPort = 8090;
 ///
 /// A physical device is on neither: it must be given an explicit
 /// --dart-define pointing at the host's LAN address or a deployed server.
-String resolveBackendUrl({
-  required String override,
-  required bool isAndroid,
-  required bool isIos,
-}) {
+String resolveBackendUrl({required String override, required bool isAndroid, required bool isIos}) {
   if (override.isNotEmpty) return override;
   if (isAndroid) return 'http://10.0.2.2:$_devPort';
   return 'http://127.0.0.1:$_devPort';
 }
 
 /// [resolveBackendUrl] applied to the real platform and dart-defines.
-String defaultBackendUrl() => resolveBackendUrl(
-  override: _override,
-  isAndroid: Platform.isAndroid,
-  isIos: Platform.isIOS,
-);
+String defaultBackendUrl() =>
+    resolveBackendUrl(override: _override, isAndroid: Platform.isAndroid, isIos: Platform.isIOS);

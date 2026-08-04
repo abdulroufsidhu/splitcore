@@ -21,7 +21,10 @@ void main() {
 
   test('iOS simulator and desktop fall back to localhost', () {
     expect(resolveBackendUrl(override: '', isAndroid: false, isIos: true), 'http://127.0.0.1:8090');
-    expect(resolveBackendUrl(override: '', isAndroid: false, isIos: false), 'http://127.0.0.1:8090');
+    expect(
+      resolveBackendUrl(override: '', isAndroid: false, isIos: false),
+      'http://127.0.0.1:8090',
+    );
   });
 
   test('no fallback is a machine-specific address', () {
