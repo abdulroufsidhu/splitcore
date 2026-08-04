@@ -162,8 +162,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           0,
           (s, m) => s + _basisPointsOf(_percentControllers[m.id]),
         );
-        if (sum != 10000)
+        if (sum != 10000) {
           return 'Percentages must add up to 100% (currently ${(sum / 100).toStringAsFixed(2)}%).';
+        }
         return null;
       case _SplitType.shares:
         final anyInvalid = widget.members.any((m) => _sharesOf(_shareControllers[m.id]) < 1);
