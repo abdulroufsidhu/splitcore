@@ -7,6 +7,7 @@ import 'package:pocketbase/pocketbase.dart';
 
 import '../calc_api.dart';
 import '../models.dart';
+import 'filters.dart';
 import 'local_store.dart';
 import 'staleness_api.dart';
 
@@ -50,20 +51,20 @@ class SettlementsApi {
   Future<List<Settlement>> listSettlements(String groupId) async {
     final records = await _pb
         .collection('settlements')
-        .getFullList(filter: "group = '$groupId'", sort: '-date');
+        .getFullList(filter: byGroup(_pb, groupId), sort: '-date');
     return [for (final r in records) _settlementFromRecord(r)];
   }
 
   Future<void> _resync(String groupId) async {
     final expenseRecords = await _pb
         .collection('expenses')
-        .getFullList(filter: "group = '$groupId'");
+        .getFullList(filter: byGroup(_pb, groupId));
 
     final expenses = <ExpenseInput>[];
     for (final expense in expenseRecords) {
       final splitRecords = await _pb
           .collection('split_entries')
-          .getFullList(filter: "expense = '${expense.id}'");
+          .getFullList(filter: byExpense(_pb, expense.id));
       expenses.add(
         ExpenseInput(
           payerId: expense.getStringValue('payer'),
@@ -81,7 +82,7 @@ class SettlementsApi {
 
     final settlementRecords = await _pb
         .collection('settlements')
-        .getFullList(filter: "group = '$groupId'");
+        .getFullList(filter: byGroup(_pb, groupId));
     final settlements = [
       for (final s in settlementRecords)
         SettlementInput(

@@ -8,6 +8,7 @@ import 'package:pocketbase/pocketbase.dart';
 
 import '../calc_api.dart';
 import '../models.dart';
+import 'filters.dart';
 import 'receipts.dart' as receipts;
 
 class ExpensesApi {
@@ -57,14 +58,14 @@ class ExpensesApi {
   Future<List<Expense>> listExpenses(String groupId) async {
     final records = await _pb
         .collection('expenses')
-        .getFullList(filter: "group = '$groupId'", sort: '-date');
+        .getFullList(filter: byGroup(_pb, groupId), sort: '-date');
     return [for (final r in records) _expenseFromRecord(r)];
   }
 
   Future<List<SplitEntry>> listSplitEntries(String expenseId) async {
     final records = await _pb
         .collection('split_entries')
-        .getFullList(filter: "expense = '$expenseId'");
+        .getFullList(filter: byExpense(_pb, expenseId));
     return [for (final r in records) _splitEntryFromRecord(r)];
   }
 
