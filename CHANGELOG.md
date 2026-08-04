@@ -7,6 +7,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Expense editing (`updateExpense`), expense search, and paginated
+  expense/settlement listings (`Page<T>`).
+- Password reset, email verification, and account deletion. Deletion
+  erases the account when there is no ledger history and anonymizes it
+  otherwise — see `server/README.md` for why erasure is impossible for a
+  participant.
+- Group ledger export to CSV (`sdk.export.groupToCsv`).
+- `TokenStore`: SDK-owned session persistence, so the app no longer
+  depends on `package:pocketbase`.
 - Root `README.md`, `LICENSE` (MIT), `CONTRIBUTING.md`, `SECURITY.md`, and
   this changelog.
 - Native build scripts for macOS (universal dylib) and Windows
@@ -28,6 +37,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `prompt.md` moved to `docs/`.
 
 ### Fixed
+- PocketBase filters are parameterized rather than interpolated, so a
+  value containing a quote cannot inject filter syntax.
+- A failed expense create no longer leaves an orphan, permanently
+  uncounted expense behind.
+- Concurrent session refreshes share one request instead of racing.
 - The app's default backend URL was a hardcoded LAN address
   (`192.168.240.1`) that only worked on one developer's machine. It is now
   resolved per platform, with `--dart-define=POCKETBASE_URL` overriding.

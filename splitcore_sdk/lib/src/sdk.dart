@@ -9,6 +9,7 @@ import 'models.dart';
 import 'remote/auth_api.dart';
 import 'remote/balances_api.dart';
 import 'remote/expenses_api.dart';
+import 'remote/export_api.dart';
 import 'remote/groups_api.dart';
 import 'remote/local_store.dart';
 import 'remote/settlements_api.dart';
@@ -21,6 +22,7 @@ class SplitcoreSdk {
     this.expenses,
     this.settlements,
     this.balances,
+    this.export,
     this._calc,
   );
 
@@ -45,12 +47,16 @@ class SplitcoreSdk {
     );
     final calc = SplitcoreCalc.open(libraryPath);
     final store = LocalStore();
+    final groupsApi = GroupsApi(pb);
+    final expensesApi = ExpensesApi(pb, calc);
+    final settlementsApi = SettlementsApi(pb, calc, store);
     return SplitcoreSdk._(
       AuthApi(pb),
-      GroupsApi(pb),
-      ExpensesApi(pb, calc),
-      SettlementsApi(pb, calc, store),
+      groupsApi,
+      expensesApi,
+      settlementsApi,
       BalancesApi(pb),
+      ExportApi(groupsApi, expensesApi, settlementsApi),
       calc,
     );
   }
@@ -60,6 +66,9 @@ class SplitcoreSdk {
   final ExpensesApi expenses;
   final SettlementsApi settlements;
   final BalancesApi balances;
+
+  /// Ledger export — see [ExportApi.groupToCsv].
+  final ExportApi export;
   final SplitcoreCalc _calc;
 
   /// Suggests the minimal set of transfers to zero out [balances].
