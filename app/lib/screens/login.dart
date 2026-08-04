@@ -7,10 +7,15 @@ import 'package:splitcore_sdk/splitcore_sdk.dart';
 import '../theme.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, required this.sdk, required this.onSignedIn});
+  const LoginScreen({super.key, required this.sdk, required this.onSignedIn, this.resetOverride});
 
-  final SplitcoreSdk sdk;
+  /// Null only in widget tests, which supply [resetOverride] instead.
+  final SplitcoreSdk? sdk;
   final ValueChanged<AppUser> onSignedIn;
+
+  /// Test seam for the password-reset request.
+  @visibleForTesting
+  final Future<void> Function(String email)? resetOverride;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -37,14 +42,32 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       final user = _isSignUp
-          ? await widget.sdk.auth.signUp(email: _email.text.trim(), password: _password.text)
-          : await widget.sdk.auth.signIn(email: _email.text.trim(), password: _password.text);
+          ? await widget.sdk!.auth.signUp(email: _email.text.trim(), password: _password.text)
+          : await widget.sdk!.auth.signIn(email: _email.text.trim(), password: _password.text);
       widget.onSignedIn(user);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _forgotPassword() async {
+    final email = _email.text.trim();
+    if (email.isEmpty) {
+      setState(() => _error = 'Enter your email address first.');
+      return;
+    }
+    final request = widget.resetOverride ?? widget.sdk!.auth.requestPasswordReset;
+    await request(email);
+    if (!mounted) return;
+    setState(() => _error = null);
+    // Deliberately non-committal: confirming that an address is registered
+    // would make this button an account-enumeration oracle. The SDK is
+    // silent about unknown addresses for the same reason.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('If that address has an account, a reset link is on its way.')),
+    );
   }
 
   @override
@@ -87,6 +110,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         )
                       : Text(_isSignUp ? 'Create account' : 'Sign in'),
                 ),
+                if (!_isSignUp)
+                  TextButton(
+                    onPressed: _loading ? null : _forgotPassword,
+                    child: const Text('Forgot password?'),
+                  ),
                 TextButton(
                   onPressed: () => setState(() => _isSignUp = !_isSignUp),
                   child: Text(_isSignUp ? 'Have an account? Sign in' : 'New here? Create account'),

@@ -18,6 +18,7 @@ import '../widgets/currency_picker.dart';
 import '../widgets/money_text.dart';
 import '../widgets/page_body.dart';
 import '../widgets/skeleton.dart';
+import 'account.dart';
 import 'activity.dart';
 import 'group_detail.dart';
 import 'new_group.dart';
@@ -427,6 +428,23 @@ class _HomeScreenState extends State<HomeScreen> {
               onTap: () {
                 Navigator.of(context).pop();
                 _showEditProfileSheet(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_outlined),
+              title: const Text('Account settings'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(this.context).push(
+                  MaterialPageRoute(
+                    builder: (_) => AccountScreen(
+                      sdk: widget.sdk,
+                      me: widget.me,
+                      groups: [for (final r in _rows.value ?? const <GroupRow>[]) r.group],
+                      onSignedOut: widget.onSignedOut,
+                    ),
+                  ),
+                );
               },
             ),
             ListTile(
