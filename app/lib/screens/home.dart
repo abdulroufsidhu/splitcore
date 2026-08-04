@@ -9,6 +9,8 @@ import 'package:splitcore_sdk/splitcore_sdk.dart';
 import '../display_name.dart';
 import '../money.dart';
 import '../loadable.dart';
+import '../offline_cache.dart';
+import '../relative_time.dart';
 import '../theme.dart';
 import '../widgets/async_section.dart';
 import '../widgets/avatar.dart';
@@ -32,6 +34,18 @@ class GroupRow {
     this.directName,
     this.directAvatarUrl,
   );
+
+  /// A row rebuilt from the offline cache. myMemberId is empty because
+  /// nothing cached can be tapped through to a live action.
+  factory GroupRow.fromCache(GroupSummary summary) => GroupRow(
+    Group(id: summary.id, name: summary.name, currency: summary.currency, version: 0, ownerId: ''),
+    '',
+    summary.myNetCents,
+    summary.memberCount,
+    '',
+    '',
+  );
+
   final Group group;
   final String myMemberId;
   final int myNetCents;
@@ -50,6 +64,7 @@ class HomeScreen extends StatefulWidget {
     required this.me,
     required this.onSignedOut,
     required this.onProfileUpdated,
+    this.cache,
     this.loadOverride,
   });
 
@@ -62,6 +77,10 @@ class HomeScreen extends StatefulWidget {
   /// the AppUser it hands down (widget.me here doesn't rebuild on its own).
   final ValueChanged<AppUser> onProfileUpdated;
 
+  /// Last-known-good group data, shown when a load fails. Null disables
+  /// the offline fallback entirely (widget tests, mostly).
+  final OfflineCache? cache;
+
   /// Test seam: supplies the group rows without an SDK or a server.
   @visibleForTesting
   final Future<List<GroupRow>> Function()? loadOverride;
@@ -72,6 +91,11 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final Loadable<List<GroupRow>> _rows = Loadable(widget.loadOverride ?? _fetchRows);
+
+  /// True while the list on screen came from the cache rather than the
+  /// server. Drives the banner — the user must never mistake stale data
+  /// for live data.
+  bool _showingCached = false;
 
   @override
   void initState() {
@@ -107,12 +131,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<List<GroupRow>> _fetchRows() async {
-    final groups = await widget.sdk!.groups.listMyGroups();
-    final rows = await Future.wait(groups.map(_loadRow));
-    return [
-      for (final r in rows)
-        if (r != null) r,
-    ];
+    try {
+      final groups = await widget.sdk!.groups.listMyGroups();
+      final loaded = await Future.wait(groups.map(_loadRow));
+      final rows = [
+        for (final r in loaded)
+          if (r != null) r,
+      ];
+      await widget.cache?.putGroups([
+        for (final r in rows)
+          GroupSummary(
+            id: r.group.id,
+            name: r.group.name,
+            currency: r.group.currency,
+            myNetCents: r.myNetCents,
+            memberCount: r.memberCount,
+          ),
+      ]);
+      await widget.cache?.markUpdated();
+      _showingCached = false;
+      return rows;
+    } catch (_) {
+      final cached = widget.cache?.groups();
+      // Nothing to fall back to: the error is the honest answer, and
+      // AsyncSection turns it into a retry.
+      if (cached == null) rethrow;
+      _showingCached = true;
+      return [for (final g in cached) GroupRow.fromCache(g)];
+    }
   }
 
   Future<void> _load() => _rows.load();
@@ -145,6 +191,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Column(
                     children: [
+                      if (_showingCached) _OfflineBanner(cache: widget.cache, onRetry: _load),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
                         child: Row(
@@ -535,5 +582,41 @@ class _GroupTile extends StatelessWidget {
       return parts.first.substring(0, parts.first.length.clamp(0, 2)).toUpperCase();
     }
     return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+}
+
+/// Shown above the group list when the data on screen came from the cache.
+/// Stale numbers must never be mistaken for live ones, so this says both
+/// that the app is offline and how old the figures are.
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner({required this.cache, required this.onRetry});
+
+  final OfflineCache? cache;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final slice = context.slice;
+    final updated = cache?.lastUpdated;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      color: slice.chip,
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_outlined, size: 18, color: slice.muted),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              updated == null
+                  ? "You're offline — showing saved data."
+                  : "You're offline — showing data from ${formatRelative(updated)}.",
+              style: TextStyle(fontSize: 12.5, color: slice.ink),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
+      ),
+    );
   }
 }

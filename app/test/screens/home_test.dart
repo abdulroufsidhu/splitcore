@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:splitcore_app/offline_cache.dart';
 import 'package:splitcore_app/screens/home.dart';
 import 'package:splitcore_app/theme.dart';
 
@@ -73,5 +75,56 @@ void main() {
     // USD 25.00 + 10.00 = 35.00, kept apart from the EUR 40.00.
     expect(find.textContaining(r'$35.00'), findsWidgets);
     expect(find.textContaining('€40.00'), findsWidgets);
+  });
+
+  testWidgets('a failed load falls back to cached groups, with a banner', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final cache = OfflineCache(await SharedPreferences.getInstance());
+    await cache.putGroups(const [
+      GroupSummary(id: 'g1', name: 'Trip', currency: 'USD', myNetCents: 2500, memberCount: 3),
+    ]);
+    await cache.markUpdated();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: sliceLightTheme(),
+        home: HomeScreen(
+          sdk: null,
+          me: _me,
+          onSignedOut: () {},
+          onProfileUpdated: (_) {},
+          cache: cache,
+          // The real _fetchRows path: it throws, then reads the cache.
+          loadOverride: null,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Trip'), findsOneWidget);
+    expect(find.textContaining("You're offline"), findsOneWidget);
+    expect(find.textContaining('just now'), findsOneWidget);
+  });
+
+  testWidgets('with nothing cached, a failed load shows the error and a retry', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final cache = OfflineCache(await SharedPreferences.getInstance());
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: sliceLightTheme(),
+        home: HomeScreen(
+          sdk: null,
+          me: _me,
+          onSignedOut: () {},
+          onProfileUpdated: (_) {},
+          cache: cache,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.textContaining("You're offline"), findsNothing);
   });
 }

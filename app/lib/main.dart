@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import 'config.dart';
+import 'offline_cache.dart';
 import 'screens/home.dart';
 import 'screens/login.dart';
 import 'theme.dart';
@@ -83,10 +84,15 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
     currentUser.value = refreshed;
   }
 
+  /// Last-known-good group data for the offline banner. Built alongside
+  /// the SDK because both need the same resolved prefs instance.
+  OfflineCache? _cache;
+
   Future<SplitcoreSdk> _initSdk() async {
     // Resolve prefs first: TokenStore.read is synchronous because the SDK
     // needs the stored session while constructing its client.
     final prefs = await SharedPreferences.getInstance();
+    _cache = OfflineCache(prefs);
     final sdk = SplitcoreSdk.initialize(
       pocketbaseUrl: defaultBackendUrl(),
       libraryPath: _libraryPath(),
@@ -124,6 +130,7 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
               return HomeScreen(
                 sdk: sdk,
                 me: user,
+                cache: _cache,
                 onSignedOut: () {
                   sdk.auth.signOut();
                   currentUser.value = null;
