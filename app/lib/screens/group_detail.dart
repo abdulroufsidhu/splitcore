@@ -2,6 +2,8 @@
 // up live as the two bottom actions, matching the design's card.
 // Flutter's navigator also exports a `Page`; the SDK's paging type is the
 // one this screen deals in.
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide Page;
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
@@ -47,6 +49,7 @@ class GroupDetailScreen extends StatefulWidget {
     required this.group,
     this.loadOverride,
     this.loadMoreOverride,
+    this.searchOverride,
   });
 
   /// Null only in widget tests, which supply [loadOverride] instead.
@@ -62,6 +65,10 @@ class GroupDetailScreen extends StatefulWidget {
   @visibleForTesting
   final Future<Page<Expense>> Function(int page)? loadMoreOverride;
 
+  /// Test seam for search.
+  @visibleForTesting
+  final Future<Page<Expense>> Function(String query)? searchOverride;
+
   @override
   State<GroupDetailScreen> createState() => GroupDetailScreenState();
 }
@@ -76,6 +83,13 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
   int _loadedPage = 1;
   bool _loadingMore = false;
 
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
+
+  /// Non-null while a search is showing; null means "show the normal
+  /// activity list".
+  List<Expense>? _searchResults;
+
   @override
   void initState() {
     super.initState();
@@ -84,8 +98,33 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
     _data.dispose();
     super.dispose();
+  }
+
+  /// Debounced because the search hits the server: firing per keystroke
+  /// issues one request per character and lets a slow early response
+  /// overwrite a later one.
+  void _onSearchChanged(String query) {
+    _searchDebounce?.cancel();
+    if (query.trim().isEmpty) {
+      setState(() => _searchResults = null);
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
+      final search =
+          widget.searchOverride ??
+          (String q) => widget.sdk!.expenses.searchExpenses(widget.group.id, q);
+      try {
+        final results = await search(query);
+        if (mounted) setState(() => _searchResults = results.items);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Couldn't search: $e")));
+      }
+    });
   }
 
   Future<GroupDetailData> _fetch() async {
@@ -294,12 +333,15 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                 : widget.group.name;
             // Derived here rather than stored, so appended pages show up
             // without another round trip.
+            final searching = _searchResults != null;
             final activity = buildActivity(
               group: widget.group,
               members: data.members,
               me: widget.me,
-              expenses: [...data.expenses.items, ..._extraExpenses],
-              settlements: data.settlements.items,
+              // While searching, the list shows matches only — settlements
+              // are not searchable, so they drop out with them.
+              expenses: searching ? _searchResults! : [...data.expenses.items, ..._extraExpenses],
+              settlements: searching ? const [] : data.settlements.items,
             );
             return RefreshIndicator(
               onRefresh: refresh,
@@ -374,11 +416,33 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                             ),
                           ),
                         ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                          child: TextField(
+                            controller: _searchController,
+                            onChanged: _onSearchChanged,
+                            decoration: InputDecoration(
+                              isDense: true,
+                              hintText: 'Search expenses',
+                              prefixIcon: const Icon(Icons.search, size: 20),
+                              suffixIcon: searching
+                                  ? IconButton(
+                                      tooltip: 'Clear search',
+                                      icon: const Icon(Icons.close, size: 18),
+                                      onPressed: () {
+                                        _searchController.clear();
+                                        _onSearchChanged('');
+                                      },
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ),
                         Expanded(
                           child: activity.isEmpty
                               ? Center(
                                   child: Text(
-                                    'No activity yet',
+                                    searching ? 'No expenses match.' : 'No activity yet',
                                     style: TextStyle(color: slice.muted),
                                   ),
                                 )
@@ -387,7 +451,8 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                                   // One extra row for the load-more
                                   // affordance when older pages exist.
                                   itemCount:
-                                      activity.length + (_hasMoreExpenses(data.expenses) ? 1 : 0),
+                                      activity.length +
+                                      (!searching && _hasMoreExpenses(data.expenses) ? 1 : 0),
                                   itemBuilder: (context, i) {
                                     if (i == activity.length) {
                                       return _LoadMoreRow(
