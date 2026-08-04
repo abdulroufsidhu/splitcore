@@ -67,6 +67,45 @@ class AuthApi {
 
   void signOut() => _pb.authStore.clear();
 
+  /// Whether the signed-in user has confirmed their email address. False
+  /// when nobody is signed in.
+  bool get isEmailVerified => _pb.authStore.record?.getBoolValue('verified') ?? false;
+
+  /// Asks the server to mail a password-reset token to [email].
+  ///
+  /// Always resolves, even for an address with no account: a caller that
+  /// could tell the two apart would have an account-enumeration oracle.
+  /// The UI must therefore say "if that address has an account, check your
+  /// inbox" rather than confirming the address exists.
+  Future<void> requestPasswordReset(String email) async {
+    try {
+      await _pb.collection('users').requestPasswordReset(email);
+    } catch (_) {
+      // Deliberately swallowed — see above.
+    }
+  }
+
+  /// Completes a reset with the token from the emailed link. Throws when
+  /// the token is wrong, expired, or already used; the caller must surface
+  /// that, since the user needs to know their new password did not take.
+  Future<void> confirmPasswordReset({required String token, required String password}) =>
+      _pb.collection('users').confirmPasswordReset(token, password, password);
+
+  /// Asks the server to mail a verification token to [email]. Silent about
+  /// unknown addresses for the same reason as [requestPasswordReset].
+  Future<void> requestEmailVerification(String email) async {
+    try {
+      await _pb.collection('users').requestVerification(email);
+    } catch (_) {
+      // Deliberately swallowed — see requestPasswordReset.
+    }
+  }
+
+  /// Completes verification with the token from the emailed link. Throws on
+  /// a bad or expired token.
+  Future<void> confirmEmailVerification(String token) =>
+      _pb.collection('users').confirmVerification(token);
+
   /// Refreshes the current session's token (call on app resume/start so a
   /// long-backgrounded token doesn't sit expired). Returns the refreshed
   /// user, or null if there's no session to refresh or the refresh failed

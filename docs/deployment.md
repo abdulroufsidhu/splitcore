@@ -102,3 +102,30 @@ group. An unrehearsed backup is a guess.
 - **Disk:** receipts grow `pb_data` without bound. Alert at 80% full.
 - **Backups:** alert when the newest archive is older than 48 hours. A
   backup job that silently stopped is the most common way data is lost.
+
+## Email (password reset and verification)
+
+Password reset and email verification are PocketBase flows: the server
+generates the token and mails it. **Without SMTP configured, both silently
+do nothing from the user's point of view** — the SDK request succeeds and
+no mail ever arrives.
+
+Configure it in the admin UI under **Settings → Mail settings**. You need a
+real sender domain with SPF/DKIM; consumer mail providers reject
+unauthenticated transactional mail.
+
+Verify end to end after configuring:
+
+1. Sign up a throwaway account in the app.
+2. Trigger "forgot password".
+3. Confirm the mail arrives and the link completes the reset.
+
+The reset and verification templates (subject, body, and the action URL
+the app handles) are edited in the same settings page. The action URL must
+point at a page or deep link your app can receive, not at the PocketBase
+admin UI.
+
+Note that `requestPasswordReset` and `requestEmailVerification` in the SDK
+deliberately succeed even for an address with no account — otherwise the
+"forgot password" button would tell an attacker which addresses are
+registered. The UI must stay equally non-committal.
