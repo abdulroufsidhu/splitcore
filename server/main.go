@@ -8,8 +8,8 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
 
-	"github.com/abdulroufsidhu/slice_pay/server/hooks"
-	_ "github.com/abdulroufsidhu/slice_pay/server/migrations"
+	"github.com/abdulroufsidhu/splitcore/server/hooks"
+	_ "github.com/abdulroufsidhu/splitcore/server/migrations"
 )
 
 func main() {

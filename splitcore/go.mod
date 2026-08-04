@@ -1,3 +1,3 @@
-module github.com/abdulroufsidhu/slice_pay/splitcore
+module github.com/abdulroufsidhu/splitcore/splitcore
 
 go 1.26.4

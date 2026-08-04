@@ -7,8 +7,8 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 
-	"github.com/abdulroufsidhu/slice_pay/splitcore/balance"
-	"github.com/abdulroufsidhu/slice_pay/splitcore/money"
+	"github.com/abdulroufsidhu/splitcore/splitcore/balance"
+	"github.com/abdulroufsidhu/splitcore/splitcore/money"
 )
 
 // bumpAndRecompute increments the group's version and rewrites its

@@ -6,7 +6,7 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 
-	"github.com/abdulroufsidhu/slice_pay/server/internal/testfix"
+	"github.com/abdulroufsidhu/splitcore/server/internal/testfix"
 )
 
 // ---------------------------------------------------------------------

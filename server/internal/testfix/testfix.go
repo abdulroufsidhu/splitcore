@@ -10,8 +10,8 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 
-	"github.com/abdulroufsidhu/slice_pay/server/hooks"
-	"github.com/abdulroufsidhu/slice_pay/server/migrations"
+	"github.com/abdulroufsidhu/splitcore/server/hooks"
+	"github.com/abdulroufsidhu/splitcore/server/migrations"
 )
 
 // Fixture holds a test app with schema + two users, one group
