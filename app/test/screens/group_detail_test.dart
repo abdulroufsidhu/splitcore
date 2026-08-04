@@ -184,4 +184,54 @@ void main() {
     expect(find.text('Older'), findsNothing, reason: 'refresh kept a stale appended page');
     expect(find.textContaining('older'), findsOneWidget);
   });
+
+  testWidgets('long-pressing an expense offers edit and delete', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        load: () async => GroupDetailData(
+          members: _members,
+          balances: const [],
+          expenses: _page([_expense('e1', 'Dinner')]),
+          settlements: const Page<Settlement>.empty(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Dinner'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit expense'), findsOneWidget);
+    expect(find.text('Delete expense'), findsOneWidget);
+  });
+
+  testWidgets('deleting asks for confirmation before touching anything', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        load: () async => GroupDetailData(
+          members: _members,
+          balances: const [],
+          expenses: _page([_expense('e1', 'Dinner')]),
+          settlements: const Page<Settlement>.empty(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Dinner'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete expense'));
+    await tester.pumpAndSettle();
+
+    // A confirmation dialog that names the consequence, not a bare "sure?".
+    expect(find.text('Delete this expense?'), findsOneWidget);
+    expect(find.textContaining('balances'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+
+    // Backing out leaves the expense alone — sdk is null here, so any real
+    // delete call would throw.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dinner'), findsOneWidget);
+  });
 }

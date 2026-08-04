@@ -30,24 +30,43 @@ class AddExpenseScreen extends StatefulWidget {
     required this.group,
     required this.members,
     required this.me,
+    this.existing,
+    this.existingSplits,
   });
 
-  final SplitcoreSdk sdk;
+  /// Null only in widget tests, which never reach a save.
+  final SplitcoreSdk? sdk;
   final Group group;
   final List<GroupMember> members;
   final AppUser me;
 
+  /// The expense being edited, or null when creating a new one. Editing
+  /// reuses this whole screen — the split editor and live preview are the
+  /// same either way, and a second screen would duplicate 500 lines.
+  final Expense? existing;
+
+  /// [existing]'s current split entries: which members are involved, and
+  /// for an exact split, their amounts.
+  final List<SplitEntry>? existingSplits;
+
+  bool get isEditing => existing != null;
+
   @override
-  State<AddExpenseScreen> createState() => _AddExpenseScreenState();
+  State<AddExpenseScreen> createState() => AddExpenseScreenState();
 }
 
-class _AddExpenseScreenState extends State<AddExpenseScreen> {
+class AddExpenseScreenState extends State<AddExpenseScreen> {
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
   _SplitType _splitType = _SplitType.equal;
   late String _payerMemberId =
+      widget.existing?.payerMemberId ??
       memberFor(widget.members, widget.me.id)?.id ??
       (widget.members.isNotEmpty ? widget.members.first.id : '');
+
+  /// Test-only view of who the screen thinks paid.
+  @visibleForTesting
+  String get debugPayerMemberId => _payerMemberId;
   final Map<String, TextEditingController> _exactControllers = {};
   final Map<String, TextEditingController> _percentControllers = {};
   final Map<String, TextEditingController> _shareControllers = {};
@@ -57,6 +76,24 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   String? _error;
   Timer? _previewDebounce;
   int _previewRequest = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existing;
+    if (existing == null) return;
+    _descriptionController.text = existing.description;
+    _amountController.text = formatAmountForEditing(existing.amountCents);
+    _splitType = _SplitType.values.firstWhere(
+      (t) => t.name == existing.splitType,
+      orElse: () => _SplitType.equal,
+    );
+    for (final entry in widget.existingSplits ?? const <SplitEntry>[]) {
+      _exactControllers[entry.memberId] = TextEditingController(
+        text: formatAmountForEditing(entry.amountCents),
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -189,7 +226,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     // Requests can complete out of order (isolate hop); only the latest
     // request's result is allowed to land.
     final request = ++_previewRequest;
-    final splits = await widget.sdk.previewSplit(_buildSpec());
+    final splits = await widget.sdk!.previewSplit(_buildSpec());
     if (mounted && request == _previewRequest) setState(() => _preview = splits);
   }
 
@@ -243,17 +280,26 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       _error = null;
     });
     try {
-      final expense = await widget.sdk.expenses.createExpense(
-        groupId: widget.group.id,
-        payerMemberId: _payerMemberId,
-        description: _descriptionController.text.trim(),
-        date: DateTime.now(),
-        split: _buildSpec(),
-      );
+      final existing = widget.existing;
+      final expense = existing == null
+          ? await widget.sdk!.expenses.createExpense(
+              groupId: widget.group.id,
+              payerMemberId: _payerMemberId,
+              description: _descriptionController.text.trim(),
+              date: DateTime.now(),
+              split: _buildSpec(),
+            )
+          : await widget.sdk!.expenses.updateExpense(
+              expenseId: existing.id,
+              payerMemberId: _payerMemberId,
+              description: _descriptionController.text.trim(),
+              date: existing.date,
+              split: _buildSpec(),
+            );
       if (_receiptBytes != null) {
-        final entries = await widget.sdk.expenses.listSplitEntries(expense.id);
+        final entries = await widget.sdk!.expenses.listSplitEntries(expense.id);
         if (entries.isNotEmpty) {
-          await widget.sdk.expenses.attachReceipt(entries.first.id, _receiptBytes!);
+          await widget.sdk!.expenses.attachReceipt(entries.first.id, _receiptBytes!);
         }
       }
       if (mounted) Navigator.of(context).pop();
@@ -275,7 +321,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text('Cancel', style: TextStyle(color: slice.muted)),
         ),
-        title: const Text('New expense'),
+        title: Text(widget.isEditing ? 'Edit expense' : 'New expense'),
         actions: [
           TextButton(
             onPressed: (_saving || splitError != null) ? null : _save,

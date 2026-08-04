@@ -151,3 +151,15 @@ const isoCurrencies = <String, String>{
   'YER': 'Yemeni Rial',
   'SYP': 'Syrian Pound',
 };
+
+/// Renders minor units as a plain decimal for a text field the user edits
+/// ("42.50"), with no currency symbol and no sign.
+///
+/// String manipulation, not division: going through a double reintroduces
+/// exactly the rounding error the int64 representation exists to prevent.
+String formatAmountForEditing(int cents) {
+  final digits = cents.abs().toString().padLeft(3, '0');
+  final whole = digits.substring(0, digits.length - 2);
+  final fraction = digits.substring(digits.length - 2);
+  return '${cents < 0 ? '-' : ''}$whole.$fraction';
+}

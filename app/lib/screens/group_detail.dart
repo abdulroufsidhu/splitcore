@@ -163,6 +163,96 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     );
   }
 
+  /// Edit / delete for one expense. A sheet rather than a swipe: swipe-to-
+  /// delete has no confirmation on the way in and the gesture fights the
+  /// scroll axis.
+  Future<void> _showExpenseActions(
+    BuildContext context,
+    Expense expense,
+    List<GroupMember> members,
+  ) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit expense'),
+              onTap: () => Navigator.of(sheetContext).pop('edit'),
+            ),
+            ListTile(
+              leading: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
+              title: Text(
+                'Delete expense',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              onTap: () => Navigator.of(sheetContext).pop('delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted) return;
+    if (action == 'edit') await _editExpense(expense, members);
+    if (action == 'delete') await _deleteExpense(expense);
+  }
+
+  Future<void> _editExpense(Expense expense, List<GroupMember> members) async {
+    final splits = await widget.sdk!.expenses.listSplitEntries(expense.id);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AddExpenseScreen(
+          sdk: widget.sdk,
+          group: widget.group,
+          members: members,
+          me: widget.me,
+          existing: expense,
+          existingSplits: splits,
+        ),
+      ),
+    );
+    _refresh();
+  }
+
+  Future<void> _deleteExpense(Expense expense) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete this expense?'),
+        // Deleting rewrites every member's balance, so it is never a
+        // single unconfirmed tap.
+        content: Text(
+          '"${expense.description}" will be removed and everyone\'s balances '
+          'will be recalculated. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.sdk!.expenses.deleteExpense(expense.id);
+      _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Couldn't delete: $e")));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final slice = context.slice;
@@ -353,6 +443,13 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                                       onTap: item.expense == null
                                           ? null
                                           : () => _openReceiptIfAny(context, item.expense!),
+                                      onLongPress: item.expense == null
+                                          ? null
+                                          : () => _showExpenseActions(
+                                              context,
+                                              item.expense!,
+                                              data.members,
+                                            ),
                                     );
                                   },
                                 ),
