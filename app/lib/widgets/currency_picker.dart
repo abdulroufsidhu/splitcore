@@ -37,7 +37,9 @@ class _CurrencyPickerSheetState extends State<_CurrencyPickerSheet> {
     final slice = context.slice;
     final q = _query.text.trim().toLowerCase();
     final matches = isoCurrencies.entries
-        .where((e) => q.isEmpty || e.key.toLowerCase().contains(q) || e.value.toLowerCase().contains(q))
+        .where(
+          (e) => q.isEmpty || e.key.toLowerCase().contains(q) || e.value.toLowerCase().contains(q),
+        )
         .toList();
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
@@ -51,7 +53,10 @@ class _CurrencyPickerSheetState extends State<_CurrencyPickerSheet> {
               child: TextField(
                 controller: _query,
                 autofocus: true,
-                decoration: const InputDecoration(labelText: 'Search currency', prefixIcon: Icon(Icons.search)),
+                decoration: const InputDecoration(
+                  labelText: 'Search currency',
+                  prefixIcon: Icon(Icons.search),
+                ),
                 onChanged: (_) => setState(() {}),
               ),
             ),
@@ -62,10 +67,15 @@ class _CurrencyPickerSheetState extends State<_CurrencyPickerSheet> {
                 itemBuilder: (context, i) {
                   final entry = matches[i];
                   return ListTile(
-                    leading: Text(currencySymbol(entry.key), style: moneyStyle(size: 18, color: slice.ink)),
+                    leading: Text(
+                      currencySymbol(entry.key),
+                      style: moneyStyle(size: 18, color: slice.ink),
+                    ),
                     title: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w600)),
                     subtitle: Text(entry.value),
-                    trailing: entry.key == widget.current ? Icon(Icons.check, color: slice.ink) : null,
+                    trailing: entry.key == widget.current
+                        ? Icon(Icons.check, color: slice.ink)
+                        : null,
                     onTap: () => Navigator.of(context).pop(entry.key),
                   );
                 },

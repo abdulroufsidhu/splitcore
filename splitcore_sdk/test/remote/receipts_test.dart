@@ -27,13 +27,7 @@ Uint8List _syntheticPng(int width, int height) {
   for (var y = 0; y < height; y++) {
     for (var x = 0; x < width; x++) {
       int channel(int base) => (base + rnd.nextInt(31) - 15).clamp(0, 255);
-      image.setPixelRgb(
-        x,
-        y,
-        channel(255 * x ~/ width),
-        channel(255 * y ~/ height),
-        channel(128),
-      );
+      image.setPixelRgb(x, y, channel(255 * x ~/ width), channel(255 * y ~/ height), channel(128));
     }
   }
   return Uint8List.fromList(img.encodePng(image));

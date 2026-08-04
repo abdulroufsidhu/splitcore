@@ -45,7 +45,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
   _SplitType _splitType = _SplitType.equal;
-  late String _payerMemberId = memberFor(widget.members, widget.me.id)?.id ??
+  late String _payerMemberId =
+      memberFor(widget.members, widget.me.id)?.id ??
       (widget.members.isNotEmpty ? widget.members.first.id : '');
   final Map<String, TextEditingController> _exactControllers = {};
   final Map<String, TextEditingController> _percentControllers = {};
@@ -137,7 +138,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         return SplitSpec.shares(
           totalCents: _totalCents,
           entries: [
-            for (final id in memberIds) ShareSplitEntry(memberId: id, shares: _sharesOf(_shareControllers[id])),
+            for (final id in memberIds)
+              ShareSplitEntry(memberId: id, shares: _sharesOf(_shareControllers[id])),
           ],
         );
     }
@@ -156,8 +158,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         }
         return null;
       case _SplitType.percent:
-        final sum = widget.members.fold<int>(0, (s, m) => s + _basisPointsOf(_percentControllers[m.id]));
-        if (sum != 10000) return 'Percentages must add up to 100% (currently ${(sum / 100).toStringAsFixed(2)}%).';
+        final sum = widget.members.fold<int>(
+          0,
+          (s, m) => s + _basisPointsOf(_percentControllers[m.id]),
+        );
+        if (sum != 10000)
+          return 'Percentages must add up to 100% (currently ${(sum / 100).toStringAsFixed(2)}%).';
         return null;
       case _SplitType.shares:
         final anyInvalid = widget.members.any((m) => _sharesOf(_shareControllers[m.id]) < 1);
@@ -215,7 +221,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       setState(() => _receiptBytes = bytes);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Couldn't attach receipt: $e")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Couldn't attach receipt: $e")));
     }
   }
 
@@ -270,141 +278,165 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         actions: [
           TextButton(
             onPressed: (_saving || splitError != null) ? null : _save,
-            child: Text('Save', style: TextStyle(color: _saving ? slice.muted : slice.positive, fontWeight: FontWeight.w700)),
+            child: Text(
+              'Save',
+              style: TextStyle(
+                color: _saving ? slice.muted : slice.positive,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
       body: SafeArea(
         child: PageBody(
           child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Column(
                     children: [
-                      Text(currencySymbol(widget.group.currency), style: moneyStyle(size: 34, color: slice.muted)),
-                      IntrinsicWidth(
-                        child: TextField(
-                          controller: _amountController,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          style: moneyStyle(size: 40, color: slice.ink),
-                          textAlign: TextAlign.center,
-                          decoration: const InputDecoration(border: InputBorder.none, hintText: '0.00'),
-                          onChanged: (_) => _schedulePreview(),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            currencySymbol(widget.group.currency),
+                            style: moneyStyle(size: 34, color: slice.muted),
+                          ),
+                          IntrinsicWidth(
+                            child: TextField(
+                              controller: _amountController,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              style: moneyStyle(size: 40, color: slice.ink),
+                              textAlign: TextAlign.center,
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                hintText: '0.00',
+                              ),
+                              onChanged: (_) => _schedulePreview(),
+                            ),
+                          ),
+                        ],
+                      ),
+                      TextField(
+                        controller: _descriptionController,
+                        textAlign: TextAlign.center,
+                        decoration: const InputDecoration(
+                          border: UnderlineInputBorder(),
+                          hintText: 'Description',
                         ),
                       ),
                     ],
                   ),
-                  TextField(
-                    controller: _descriptionController,
-                    textAlign: TextAlign.center,
-                    decoration: const InputDecoration(border: UnderlineInputBorder(), hintText: 'Description'),
+                ),
+                const SizedBox(height: 16),
+                Text('PAID BY', style: sectionLabelStyle(slice.muted)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final m in widget.members)
+                      ChoiceChip(
+                        label: Text(displayName(m, widget.me)),
+                        selected: _payerMemberId == m.id,
+                        onSelected: (_) => setState(() => _payerMemberId = m.id),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Text('SPLIT', style: sectionLabelStyle(slice.muted)),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: slice.chip,
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text('PAID BY', style: sectionLabelStyle(slice.muted)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final m in widget.members)
-                  ChoiceChip(
-                    label: Text(displayName(m, widget.me)),
-                    selected: _payerMemberId == m.id,
-                    onSelected: (_) => setState(() => _payerMemberId = m.id),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Text('SPLIT', style: sectionLabelStyle(slice.muted)),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(color: slice.chip, borderRadius: BorderRadius.circular(10)),
-              child: Row(
-                children: [
-                  for (final type in _SplitType.values)
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _splitType = type;
-                            _seedSplitControllers(type);
-                          });
-                          _updatePreview();
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: BoxDecoration(
-                            color: _splitType == type ? slice.card : null,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            _label(type),
-                            style: TextStyle(
-                              fontWeight: _splitType == type ? FontWeight.w700 : FontWeight.w600,
-                              fontSize: 13,
-                              color: _splitType == type ? slice.ink : slice.muted,
+                  child: Row(
+                    children: [
+                      for (final type in _SplitType.values)
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _splitType = type;
+                                _seedSplitControllers(type);
+                              });
+                              _updatePreview();
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: _splitType == type ? slice.card : null,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                _label(type),
+                                style: TextStyle(
+                                  fontWeight: _splitType == type
+                                      ? FontWeight.w700
+                                      : FontWeight.w600,
+                                  fontSize: 13,
+                                  color: _splitType == type ? slice.ink : slice.muted,
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            _splitType == _SplitType.equal ? _equalPreview(slice) : _editableSplitRows(slice),
-            if (splitError != null) ...[
-              const SizedBox(height: 8),
-              Text(splitError, style: TextStyle(fontSize: 12, color: slice.negative)),
-            ],
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Text('RECEIPT', style: sectionLabelStyle(slice.muted)),
-                const SizedBox(width: 6),
-                Text('(optional)', style: TextStyle(fontSize: 11, color: slice.muted)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            GestureDetector(
-              onTap: _pickReceipt,
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  border: Border.all(color: slice.border, style: BorderStyle.solid),
-                  borderRadius: BorderRadius.circular(10),
+                    ],
+                  ),
                 ),
-                child: Row(
+                const SizedBox(height: 10),
+                _splitType == _SplitType.equal ? _equalPreview(slice) : _editableSplitRows(slice),
+                if (splitError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(splitError, style: TextStyle(fontSize: 12, color: slice.negative)),
+                ],
+                const SizedBox(height: 18),
+                Row(
                   children: [
-                    Icon(Icons.camera_alt_outlined, size: 18, color: slice.ink),
-                    const SizedBox(width: 8),
-                    Text(
-                      _receiptBytes == null ? 'Attach receipt' : 'Receipt attached · retake',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5, color: slice.ink),
-                    ),
+                    Text('RECEIPT', style: sectionLabelStyle(slice.muted)),
+                    const SizedBox(width: 6),
+                    Text('(optional)', style: TextStyle(fontSize: 11, color: slice.muted)),
                   ],
                 ),
-              ),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: _pickReceipt,
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: slice.border, style: BorderStyle.solid),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.camera_alt_outlined, size: 18, color: slice.ink),
+                        const SizedBox(width: 8),
+                        Text(
+                          _receiptBytes == null ? 'Attach receipt' : 'Receipt attached · retake',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13.5,
+                            color: slice.ink,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_error!, style: TextStyle(color: slice.negative)),
+                ],
+                const SizedBox(height: 40),
+              ],
             ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: TextStyle(color: slice.negative)),
-            ],
-            const SizedBox(height: 40),
-          ],
-        ),
           ),
         ),
       ),
@@ -436,7 +468,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                       style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: slice.ink),
                     ),
                   ),
-                  MoneyText(split.amountCents, widget.group.currency, signed: false, size: 14, weight: FontWeight.w500),
+                  MoneyText(
+                    split.amountCents,
+                    widget.group.currency,
+                    signed: false,
+                    size: 14,
+                    weight: FontWeight.w500,
+                  ),
                 ],
               ),
             ),
@@ -484,7 +522,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                     width: 90,
                     child: TextField(
                       controller: controllers[m.id],
-                      keyboardType: TextInputType.numberWithOptions(decimal: _splitType != _SplitType.shares),
+                      keyboardType: TextInputType.numberWithOptions(
+                        decimal: _splitType != _SplitType.shares,
+                      ),
                       textAlign: TextAlign.right,
                       style: moneyStyle(size: 14, weight: FontWeight.w500, color: slice.ink),
                       decoration: InputDecoration(
@@ -504,11 +544,11 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   }
 
   String _label(_SplitType type) => switch (type) {
-        _SplitType.equal => 'Equal',
-        _SplitType.exact => 'Exact',
-        _SplitType.percent => '%',
-        _SplitType.shares => 'Shares',
-      };
+    _SplitType.equal => 'Equal',
+    _SplitType.exact => 'Exact',
+    _SplitType.percent => '%',
+    _SplitType.shares => 'Shares',
+  };
 
   String _memberDisplayName(String memberId) {
     final member = widget.members.where((m) => m.id == memberId);

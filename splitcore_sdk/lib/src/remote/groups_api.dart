@@ -11,10 +11,14 @@ class GroupsApi {
 
   final PocketBase _pb;
 
-  Future<Group> createGroup({required String name, required String currency, bool isDirect = false}) async {
-    final record = await _pb.collection('groups').create(
-      body: {'name': name, 'currency': currency, 'is_direct': isDirect},
-    );
+  Future<Group> createGroup({
+    required String name,
+    required String currency,
+    bool isDirect = false,
+  }) async {
+    final record = await _pb
+        .collection('groups')
+        .create(body: {'name': name, 'currency': currency, 'is_direct': isDirect});
     return _groupFromRecord(record);
   }
 
@@ -58,9 +62,9 @@ class GroupsApi {
     required String userId,
     required String role,
   }) async {
-    final record = await _pb.collection('group_members').create(
-      body: {'group': groupId, 'user': userId, 'role': role},
-    );
+    final record = await _pb
+        .collection('group_members')
+        .create(body: {'group': groupId, 'user': userId, 'role': role});
     return _memberFromRecord(record);
   }
 
@@ -85,18 +89,18 @@ class GroupsApi {
   }
 
   Group _groupFromRecord(RecordModel record) => Group(
-        id: record.id,
-        name: record.getStringValue('name'),
-        currency: record.getStringValue('currency'),
-        version: record.getIntValue('version'),
-        ownerId: record.getStringValue('owner'),
-        isDirect: record.getBoolValue('is_direct'),
-      );
+    id: record.id,
+    name: record.getStringValue('name'),
+    currency: record.getStringValue('currency'),
+    version: record.getIntValue('version'),
+    ownerId: record.getStringValue('owner'),
+    isDirect: record.getBoolValue('is_direct'),
+  );
 
   GroupMember _memberFromRecord(RecordModel record) => GroupMember(
-        id: record.id,
-        groupId: record.getStringValue('group'),
-        userId: record.getStringValue('user'),
-        role: record.getStringValue('role'),
-      );
+    id: record.id,
+    groupId: record.getStringValue('group'),
+    userId: record.getStringValue('user'),
+    role: record.getStringValue('role'),
+  );
 }

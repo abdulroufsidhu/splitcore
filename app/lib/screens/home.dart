@@ -83,7 +83,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final myBalances = balances.where((b) => b.memberId == me.id);
       final myNetCents = myBalances.isEmpty ? 0 : myBalances.first.netCents;
       final directName = group.isDirect ? directPersonName(members, widget.me, group.name) : '';
-      final directAvatarUrl = group.isDirect ? (otherMember(members, widget.me)?.avatarUrl ?? '') : '';
+      final directAvatarUrl = group.isDirect
+          ? (otherMember(members, widget.me)?.avatarUrl ?? '')
+          : '';
       return _GroupRow(group, me.id, myNetCents, members.length, directName, directAvatarUrl);
     } catch (_) {
       return null;
@@ -96,7 +98,10 @@ class _HomeScreenState extends State<HomeScreen> {
       final rows = await Future.wait(groups.map(_loadRow));
       if (!mounted) return;
       setState(() {
-        _rows = [for (final r in rows) if (r != null) r];
+        _rows = [
+          for (final r in rows)
+            if (r != null) r,
+        ];
         _error = null;
         _loading = false;
       });
@@ -126,144 +131,158 @@ class _HomeScreenState extends State<HomeScreen> {
     final slice = context.slice;
     return Scaffold(
       body: SafeArea(
-        child: Builder(builder: (context) {
-          final rows = _rows;
-          if (rows == null && _loading) {
-            return const SkeletonList();
-          }
-          if (rows == null && _error != null) {
-            return Center(child: Text('Failed to load groups: $_error'));
-          }
-          final totals = _netByCurrency(rows!);
-          return PageBody(child: Stack(
-              children: [
-                Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('SlicePay', style: pageTitleStyle(slice.ink)),
-                          Row(
-                            children: [
-                              IconButton(
-                                tooltip: 'Activity',
-                                icon: Icon(Icons.receipt_long_outlined, color: slice.ink),
-                                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                                  builder: (_) => ActivityScreen(sdk: widget.sdk, me: widget.me),
-                                )),
-                              ),
-                              GestureDetector(
-                                onTap: () => _showAccountSheet(context),
-                                child: Avatar(
-                                  meInitial(widget.me),
-                                  imageUrl: widget.me.avatarUrl,
-                                  background: slice.ink,
-                                  foreground: slice.paper,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (totals.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-                        decoration: BoxDecoration(
-                          border: Border(bottom: BorderSide(color: slice.border)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Builder(
+          builder: (context) {
+            final rows = _rows;
+            if (rows == null && _loading) {
+              return const SkeletonList();
+            }
+            if (rows == null && _error != null) {
+              return Center(child: Text('Failed to load groups: $_error'));
+            }
+            final totals = _netByCurrency(rows!);
+            return PageBody(
+              child: Stack(
+                children: [
+                  Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('OVERALL', style: sectionLabelStyle(slice.muted)),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 20,
-                              runSpacing: 8,
+                            Text('SlicePay', style: pageTitleStyle(slice.ink)),
+                            Row(
                               children: [
-                                for (final entry in totals.entries)
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      MoneyText(entry.value, entry.key, size: 28),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        entry.value >= 0 ? 'owed to you' : 'you owe',
-                                        style: TextStyle(fontSize: 12, color: slice.muted),
-                                      ),
-                                    ],
+                                IconButton(
+                                  tooltip: 'Activity',
+                                  icon: Icon(Icons.receipt_long_outlined, color: slice.ink),
+                                  onPressed: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          ActivityScreen(sdk: widget.sdk, me: widget.me),
+                                    ),
                                   ),
+                                ),
+                                GestureDetector(
+                                  onTap: () => _showAccountSheet(context),
+                                  child: Avatar(
+                                    meInitial(widget.me),
+                                    imageUrl: widget.me.avatarUrl,
+                                    background: slice.ink,
+                                    foreground: slice.paper,
+                                  ),
+                                ),
                               ],
                             ),
                           ],
                         ),
                       ),
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: _load,
-                        child: rows.isEmpty
-                            ? ListView(
-                                physics: const AlwaysScrollableScrollPhysics(),
+                      if (totals.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+                          decoration: BoxDecoration(
+                            border: Border(bottom: BorderSide(color: slice.border)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('OVERALL', style: sectionLabelStyle(slice.muted)),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 20,
+                                runSpacing: 8,
                                 children: [
-                                  const SizedBox(height: 120),
-                                  Center(child: Text('No groups yet', style: TextStyle(color: slice.muted))),
+                                  for (final entry in totals.entries)
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        MoneyText(entry.value, entry.key, size: 28),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          entry.value >= 0 ? 'owed to you' : 'you owe',
+                                          style: TextStyle(fontSize: 12, color: slice.muted),
+                                        ),
+                                      ],
+                                    ),
                                 ],
-                              )
-                            : ListView.builder(
-                                padding: const EdgeInsets.only(bottom: 100),
-                                itemCount: rows.length,
-                                itemBuilder: (context, i) => _GroupTile(
-                                  row: rows[i],
-                                  onTap: () async {
-                                    await Navigator.of(context).push(MaterialPageRoute(
-                                      builder: (_) => GroupDetailScreen(
-                                        sdk: widget.sdk,
-                                        me: widget.me,
-                                        group: rows[i].group,
-                                      ),
-                                    ));
-                                    _refresh();
-                                  },
-                                ),
                               ),
-                      ),
-                    ),
-                  ],
-                ),
-                Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: 24,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          await _showAddPersonSheet(context);
-                          _refresh();
-                        },
-                        icon: Icon(Icons.person_add_alt_1, color: slice.ink),
-                        label: const Text('Add person'),
-                      ),
-                      const SizedBox(width: 10),
-                      FilledButton.icon(
-                        onPressed: () async {
-                          await Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => NewGroupScreen(sdk: widget.sdk),
-                          ));
-                          _refresh();
-                        },
-                        icon: Icon(Icons.add, color: slice.paper),
-                        label: const Text('New group'),
+                            ],
+                          ),
+                        ),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: _load,
+                          child: rows.isEmpty
+                              ? ListView(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  children: [
+                                    const SizedBox(height: 120),
+                                    Center(
+                                      child: Text(
+                                        'No groups yet',
+                                        style: TextStyle(color: slice.muted),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.only(bottom: 100),
+                                  itemCount: rows.length,
+                                  itemBuilder: (context, i) => _GroupTile(
+                                    row: rows[i],
+                                    onTap: () async {
+                                      await Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => GroupDetailScreen(
+                                            sdk: widget.sdk,
+                                            me: widget.me,
+                                            group: rows[i].group,
+                                          ),
+                                        ),
+                                      );
+                                      _refresh();
+                                    },
+                                  ),
+                                ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ));
-        }),
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 24,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            await _showAddPersonSheet(context);
+                            _refresh();
+                          },
+                          icon: Icon(Icons.person_add_alt_1, color: slice.ink),
+                          label: const Text('Add person'),
+                        ),
+                        const SizedBox(width: 10),
+                        FilledButton.icon(
+                          onPressed: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => NewGroupScreen(sdk: widget.sdk)),
+                            );
+                            _refresh();
+                          },
+                          icon: Icon(Icons.add, color: slice.paper),
+                          label: const Text('New group'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -397,7 +416,10 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Edit profile', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              const Text(
+                'Edit profile',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
               const SizedBox(height: 16),
               Center(
                 child: GestureDetector(
@@ -482,7 +504,9 @@ class _GroupTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    isDirect ? row.group.currency : '${row.memberCount} people · ${row.group.currency}',
+                    isDirect
+                        ? row.group.currency
+                        : '${row.memberCount} people · ${row.group.currency}',
                     style: TextStyle(fontSize: 12.5, color: slice.muted),
                   ),
                 ],
@@ -508,7 +532,8 @@ class _GroupTile extends StatelessWidget {
   String _initials(String name) {
     final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
     if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts.first.substring(0, parts.first.length.clamp(0, 2)).toUpperCase();
+    if (parts.length == 1)
+      return parts.first.substring(0, parts.first.length.clamp(0, 2)).toUpperCase();
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
 }

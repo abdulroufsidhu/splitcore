@@ -54,23 +54,26 @@ void main() {
     payer = members.firstWhere((m) => m.userId == ownerUser.id);
   });
 
-  test('creates the settlement directly when the local version is current, without resyncing', () async {
-    final settlement = await settlementsApi.createSettlement(
-      groupId: group.id,
-      localVersion: group.version,
-      fromMemberId: other.id,
-      toMemberId: payer.id,
-      amountCents: 500,
-    );
+  test(
+    'creates the settlement directly when the local version is current, without resyncing',
+    () async {
+      final settlement = await settlementsApi.createSettlement(
+        groupId: group.id,
+        localVersion: group.version,
+        fromMemberId: other.id,
+        toMemberId: payer.id,
+        amountCents: 500,
+      );
 
-    expect(settlement.fromMemberId, other.id);
-    expect(settlement.toMemberId, payer.id);
-    expect(settlement.amountCents, 500);
-    // Date is set server-side on create so history can be sorted by it.
-    expect(settlement.date.difference(DateTime.now()).abs() < const Duration(minutes: 1), isTrue);
-    // No staleness -> no resync -> local store was never populated.
-    expect(store.snapshotFor(group.id), isNull);
-  });
+      expect(settlement.fromMemberId, other.id);
+      expect(settlement.toMemberId, payer.id);
+      expect(settlement.amountCents, 500);
+      // Date is set server-side on create so history can be sorted by it.
+      expect(settlement.date.difference(DateTime.now()).abs() < const Duration(minutes: 1), isTrue);
+      // No staleness -> no resync -> local store was never populated.
+      expect(store.snapshotFor(group.id), isNull);
+    },
+  );
 
   test('listSettlements returns a group\'s settlements newest first', () async {
     final first = await settlementsApi.createSettlement(

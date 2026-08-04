@@ -38,7 +38,11 @@ class ReceiptViewerScreen extends StatelessWidget {
                       children: [
                         Text(
                           description,
-                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5, color: Colors.white),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14.5,
+                            color: Colors.white,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         Text(

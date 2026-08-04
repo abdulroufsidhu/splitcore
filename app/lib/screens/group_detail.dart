@@ -74,14 +74,16 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     if (withReceipt.isEmpty) return;
     final url = widget.sdk.expenses.receiptUrl(withReceipt.first);
     if (url == null || !context.mounted) return;
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ReceiptViewerScreen(
-        imageUrl: url,
-        description: expense.description,
-        amountCents: expense.amountCents,
-        currency: widget.group.currency,
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ReceiptViewerScreen(
+          imageUrl: url,
+          description: expense.description,
+          amountCents: expense.amountCents,
+          currency: widget.group.currency,
+        ),
       ),
-    ));
+    );
   }
 
   @override
@@ -101,7 +103,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
             child: Center(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: slice.chip, borderRadius: BorderRadius.circular(6)),
+                decoration: BoxDecoration(
+                  color: slice.chip,
+                  borderRadius: BorderRadius.circular(6),
+                ),
                 child: Text(
                   '${widget.group.currency} · ${currencySymbol(widget.group.currency).trim()}',
                   style: moneyStyle(size: 11, color: slice.ink),
@@ -111,163 +116,210 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
           ),
         ],
       ),
-      body: SafeArea(child: Builder(builder: (context) {
-          final loaded = _data;
-          if (loaded == null && _loading) {
-            return const SkeletonList();
-          }
-          if (loaded == null && _error != null) {
-            return Center(child: Text('Failed to load group: $_error'));
-          }
-          final data = loaded!;
-          final title = widget.group.isDirect
-              ? directPersonName(data.members, widget.me, widget.group.name)
-              : widget.group.name;
-          return RefreshIndicator(
-            onRefresh: _load,
-            child: PageBody(child: Stack(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                    child: Column(
+      body: SafeArea(
+        child: Builder(
+          builder: (context) {
+            final loaded = _data;
+            if (loaded == null && _loading) {
+              return const SkeletonList();
+            }
+            if (loaded == null && _error != null) {
+              return Center(child: Text('Failed to load group: $_error'));
+            }
+            final data = loaded!;
+            final title = widget.group.isDirect
+                ? directPersonName(data.members, widget.me, widget.group.name)
+                : widget.group.name;
+            return RefreshIndicator(
+              onRefresh: _load,
+              child: PageBody(
+                child: Stack(
+                  children: [
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(title, style: pageTitleStyle(slice.ink, size: 24)),
-                        const SizedBox(height: 2),
-                        Text(
-                          data.members.map((m) => displayName(m, widget.me)).join(', '),
-                          style: TextStyle(fontSize: 12.5, color: slice.muted),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(title, style: pageTitleStyle(slice.ink, size: 24)),
+                              const SizedBox(height: 2),
+                              Text(
+                                data.members.map((m) => displayName(m, widget.me)).join(', '),
+                                style: TextStyle(fontSize: 12.5, color: slice.muted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          margin: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+                          padding: EdgeInsets.zero,
+                          decoration: BoxDecoration(
+                            border: Border(bottom: BorderSide(color: slice.border)),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  for (final member in data.members)
+                                    Container(
+                                      width: 120,
+                                      margin: const EdgeInsets.only(right: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: slice.card,
+                                        border: Border.all(color: slice.border),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            displayName(member, widget.me),
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w600,
+                                              color: slice.ink,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 3),
+                                          MoneyText(
+                                            data.netFor(member.id),
+                                            widget.group.currency,
+                                            size: 16,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: data.activity.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    'No activity yet',
+                                    style: TextStyle(color: slice.muted),
+                                  ),
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.only(bottom: 100),
+                                  itemCount: data.activity.length,
+                                  itemBuilder: (context, i) {
+                                    final item = data.activity[i];
+                                    final isSettlement = item.kind == ActivityKind.settlement;
+                                    return ListTile(
+                                      leading: Container(
+                                        width: 38,
+                                        height: 38,
+                                        decoration: BoxDecoration(
+                                          color: slice.card,
+                                          border: Border.all(color: slice.border),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Icon(
+                                          isSettlement ? Icons.swap_horiz : Icons.receipt_long,
+                                          size: 18,
+                                          color: slice.muted,
+                                        ),
+                                      ),
+                                      title: Text(
+                                        item.title,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 15,
+                                          color: slice.ink,
+                                        ),
+                                      ),
+                                      subtitle: Text(
+                                        item.subtitle,
+                                        style: TextStyle(fontSize: 12, color: slice.muted),
+                                      ),
+                                      trailing: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          MoneyText(
+                                            item.amountCents,
+                                            widget.group.currency,
+                                            signed: false,
+                                            size: 15,
+                                          ),
+                                        ],
+                                      ),
+                                      onTap: item.expense == null
+                                          ? null
+                                          : () => _openReceiptIfAny(context, item.expense!),
+                                    );
+                                  },
+                                ),
                         ),
                       ],
                     ),
-                  ),
-                  Container(
-                    margin: const EdgeInsets.fromLTRB(20, 14, 20, 16),
-                    padding: EdgeInsets.zero,
-                    decoration: BoxDecoration(
-                      border: Border(bottom: BorderSide(color: slice.border)),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            for (final member in data.members)
-                              Container(
-                                width: 120,
-                                margin: const EdgeInsets.only(right: 8),
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: slice.card,
-                                  border: Border.all(color: slice.border),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      displayName(member, widget.me),
-                                      style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: slice.ink),
-                                      overflow: TextOverflow.ellipsis,
+                    Positioned(
+                      left: 20,
+                      right: 20,
+                      bottom: 24,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () async {
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => AddExpenseScreen(
+                                      sdk: widget.sdk,
+                                      group: widget.group,
+                                      members: data.members,
+                                      me: widget.me,
                                     ),
-                                    const SizedBox(height: 3),
-                                    MoneyText(data.netFor(member.id), widget.group.currency, size: 16),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: data.activity.isEmpty
-                        ? Center(child: Text('No activity yet', style: TextStyle(color: slice.muted)))
-                        : ListView.builder(
-                            padding: const EdgeInsets.only(bottom: 100),
-                            itemCount: data.activity.length,
-                            itemBuilder: (context, i) {
-                              final item = data.activity[i];
-                              final isSettlement = item.kind == ActivityKind.settlement;
-                              return ListTile(
-                                leading: Container(
-                                  width: 38,
-                                  height: 38,
-                                  decoration: BoxDecoration(
-                                    color: slice.card,
-                                    border: Border.all(color: slice.border),
-                                    borderRadius: BorderRadius.circular(10),
                                   ),
-                                  child: Icon(isSettlement ? Icons.swap_horiz : Icons.receipt_long, size: 18, color: slice.muted),
-                                ),
-                                title: Text(item.title, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: slice.ink)),
-                                subtitle: Text(item.subtitle, style: TextStyle(fontSize: 12, color: slice.muted)),
-                                trailing: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    MoneyText(item.amountCents, widget.group.currency, signed: false, size: 15),
-                                  ],
-                                ),
-                                onTap: item.expense == null ? null : () => _openReceiptIfAny(context, item.expense!),
-                              );
-                            },
+                                );
+                                _refresh();
+                              },
+                              icon: Icon(Icons.add, color: slice.paper),
+                              label: const Text('Add expense'),
+                            ),
                           ),
-                  ),
-                ],
-              ),
-              Positioned(
-                left: 20,
-                right: 20,
-                bottom: 24,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () async {
-                          await Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => AddExpenseScreen(
-                              sdk: widget.sdk,
-                              group: widget.group,
-                              members: data.members,
-                              me: widget.me,
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () async {
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => SettleUpScreen(
+                                      sdk: widget.sdk,
+                                      group: widget.group,
+                                      members: data.members,
+                                      balances: data.balances,
+                                      me: widget.me,
+                                    ),
+                                  ),
+                                );
+                                _refresh();
+                              },
+                              child: const Text('Settle up'),
                             ),
-                          ));
-                          _refresh();
-                        },
-                        icon: Icon(Icons.add, color: slice.paper),
-                        label: const Text('Add expense'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () async {
-                          await Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => SettleUpScreen(
-                              sdk: widget.sdk,
-                              group: widget.group,
-                              members: data.members,
-                              balances: data.balances,
-                              me: widget.me,
-                            ),
-                          ));
-                          _refresh();
-                        },
-                        child: const Text('Settle up'),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
-            ],
-            )),
-          );
-      })),
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -307,11 +359,16 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     emailController.dispose();
     if (result == null || result.isEmpty || !context.mounted) return;
     try {
-      final added = await widget.sdk.groups.inviteOrAddMember(groupId: widget.group.id, email: result);
+      final added = await widget.sdk.groups.inviteOrAddMember(
+        groupId: widget.group.id,
+        email: result,
+      );
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(added ? 'Added to the group' : "Invited — they'll join once they sign up"),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(added ? 'Added to the group' : "Invited — they'll join once they sign up"),
+        ),
+      );
       _refresh();
     } catch (e) {
       if (!context.mounted) return;

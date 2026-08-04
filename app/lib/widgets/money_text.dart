@@ -28,11 +28,14 @@ class MoneyText extends StatelessWidget {
     final color = !signed
         ? slice.ink
         : cents > 0
-            ? slice.positive
-            : cents < 0
-                ? slice.negative
-                : slice.settled;
+        ? slice.positive
+        : cents < 0
+        ? slice.negative
+        : slice.settled;
     final text = signed ? formatSignedMoney(cents, currency) : formatMoney(cents, currency);
-    return Text(text, style: moneyStyle(size: size, weight: weight, color: color));
+    return Text(
+      text,
+      style: moneyStyle(size: size, weight: weight, color: color),
+    );
   }
 }

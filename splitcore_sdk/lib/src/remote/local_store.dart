@@ -12,9 +12,7 @@ class GroupSnapshot {
 
   @override
   bool operator ==(Object other) =>
-      other is GroupSnapshot &&
-      other.version == version &&
-      _listEquals(other.balances, balances);
+      other is GroupSnapshot && other.version == version && _listEquals(other.balances, balances);
 
   @override
   int get hashCode => Object.hash(version, Object.hashAll(balances));

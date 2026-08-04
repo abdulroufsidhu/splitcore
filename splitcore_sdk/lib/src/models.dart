@@ -54,19 +54,12 @@ class SplitSpec {
   const SplitSpec._(this.type, this.totalCents, this.entries);
 
   factory SplitSpec.equal({required int totalCents, required List<String> memberIds}) =>
-      SplitSpec._(
-        'equal',
-        totalCents,
-        [for (final id in memberIds) EqualSplitEntry(memberId: id)],
-      );
+      SplitSpec._('equal', totalCents, [for (final id in memberIds) EqualSplitEntry(memberId: id)]);
 
   factory SplitSpec.exact({required int totalCents, required List<ExactSplitEntry> entries}) =>
       SplitSpec._('exact', totalCents, entries);
 
-  factory SplitSpec.percent({
-    required int totalCents,
-    required List<PercentSplitEntry> entries,
-  }) =>
+  factory SplitSpec.percent({required int totalCents, required List<PercentSplitEntry> entries}) =>
       SplitSpec._('percent', totalCents, entries);
 
   factory SplitSpec.shares({required int totalCents, required List<ShareSplitEntry> entries}) =>
@@ -77,10 +70,10 @@ class SplitSpec {
   final List<SplitRequestEntry> entries;
 
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'total_cents': totalCents,
-        'entries': [for (final e in entries) e.toJson()],
-      };
+    'type': type,
+    'total_cents': totalCents,
+    'entries': [for (final e in entries) e.toJson()],
+  };
 }
 
 /// A resolved split-line, returned by ComputeSplits and consumed by
@@ -136,17 +129,20 @@ class Transfer {
   const Transfer({required this.fromMemberId, required this.toMemberId, required this.amountCents});
 
   factory Transfer.fromJson(Map<String, dynamic> json) => Transfer(
-        fromMemberId: json['from_member_id'] as String,
-        toMemberId: json['to_member_id'] as String,
-        amountCents: json['amount_cents'] as int,
-      );
+    fromMemberId: json['from_member_id'] as String,
+    toMemberId: json['to_member_id'] as String,
+    amountCents: json['amount_cents'] as int,
+  );
 
   final String fromMemberId;
   final String toMemberId;
   final int amountCents;
 
-  Map<String, dynamic> toJson() =>
-      {'from_member_id': fromMemberId, 'to_member_id': toMemberId, 'amount_cents': amountCents};
+  Map<String, dynamic> toJson() => {
+    'from_member_id': fromMemberId,
+    'to_member_id': toMemberId,
+    'amount_cents': amountCents,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -172,10 +168,10 @@ class ExpenseInput {
   final List<Split> splits;
 
   Map<String, dynamic> toJson() => {
-        'payer_id': payerId,
-        'amount_cents': amountCents,
-        'splits': [for (final s in splits) s.toJson()],
-      };
+    'payer_id': payerId,
+    'amount_cents': amountCents,
+    'splits': [for (final s in splits) s.toJson()],
+  };
 }
 
 /// A signed-in (or signed-up) PocketBase `users` record, exposed instead of
@@ -438,6 +434,9 @@ class SettlementInput {
   final String toMemberId;
   final int amountCents;
 
-  Map<String, dynamic> toJson() =>
-      {'from_member_id': fromMemberId, 'to_member_id': toMemberId, 'amount_cents': amountCents};
+  Map<String, dynamic> toJson() => {
+    'from_member_id': fromMemberId,
+    'to_member_id': toMemberId,
+    'amount_cents': amountCents,
+  };
 }

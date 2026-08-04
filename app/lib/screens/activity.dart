@@ -33,13 +33,15 @@ class _ActivityScreenState extends State<ActivityScreen> {
       final members = await widget.sdk.groups.listMembers(group.id);
       final expenses = await widget.sdk.expenses.listExpenses(group.id);
       final settlements = await widget.sdk.settlements.listSettlements(group.id);
-      items.addAll(buildActivity(
-        group: group,
-        members: members,
-        me: widget.me,
-        expenses: expenses,
-        settlements: settlements,
-      ));
+      items.addAll(
+        buildActivity(
+          group: group,
+          members: members,
+          me: widget.me,
+          expenses: expenses,
+          settlements: settlements,
+        ),
+      );
     }
     items.sort((a, b) => b.date.compareTo(a.date));
     return items;
@@ -62,7 +64,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
             }
             final items = snapshot.data!;
             if (items.isEmpty) {
-              return Center(child: Text('No activity yet', style: TextStyle(color: slice.muted)));
+              return Center(
+                child: Text('No activity yet', style: TextStyle(color: slice.muted)),
+              );
             }
             return PageBody(
               child: ListView.builder(
@@ -80,9 +84,16 @@ class _ActivityScreenState extends State<ActivityScreen> {
                         border: Border.all(color: slice.border),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Icon(isSettlement ? Icons.swap_horiz : Icons.receipt_long, size: 18, color: slice.muted),
+                      child: Icon(
+                        isSettlement ? Icons.swap_horiz : Icons.receipt_long,
+                        size: 18,
+                        color: slice.muted,
+                      ),
                     ),
-                    title: Text(item.title, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: slice.ink)),
+                    title: Text(
+                      item.title,
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: slice.ink),
+                    ),
                     subtitle: Text(
                       '${item.groupName} · ${item.subtitle} · ${DateFormat.yMMMd().format(item.date)}',
                       style: TextStyle(fontSize: 12, color: slice.muted),

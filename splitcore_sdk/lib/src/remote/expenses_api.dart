@@ -25,25 +25,29 @@ class ExpensesApi {
   }) async {
     final splits = await _calc.computeSplits(split);
 
-    final expenseRecord = await _pb.collection('expenses').create(
-      body: {
-        'group': groupId,
-        'payer': payerMemberId,
-        'description': description,
-        'amount_cents': split.totalCents,
-        'split_type': split.type,
-        'date': date.toIso8601String(),
-      },
-    );
+    final expenseRecord = await _pb
+        .collection('expenses')
+        .create(
+          body: {
+            'group': groupId,
+            'payer': payerMemberId,
+            'description': description,
+            'amount_cents': split.totalCents,
+            'split_type': split.type,
+            'date': date.toIso8601String(),
+          },
+        );
 
     for (final s in splits) {
-      await _pb.collection('split_entries').create(
-        body: {
-          'expense': expenseRecord.id,
-          'member': s.memberId,
-          'amount_cents': s.amountCents,
-        },
-      );
+      await _pb
+          .collection('split_entries')
+          .create(
+            body: {
+              'expense': expenseRecord.id,
+              'member': s.memberId,
+              'amount_cents': s.amountCents,
+            },
+          );
     }
 
     return _expenseFromRecord(expenseRecord);
@@ -86,22 +90,22 @@ class ExpensesApi {
       );
 
   Expense _expenseFromRecord(RecordModel record) => Expense(
-        id: record.id,
-        groupId: record.getStringValue('group'),
-        payerMemberId: record.getStringValue('payer'),
-        description: record.getStringValue('description'),
-        amountCents: record.getIntValue('amount_cents'),
-        splitType: record.getStringValue('split_type'),
-        date: DateTime.parse(record.getStringValue('date')),
-      );
+    id: record.id,
+    groupId: record.getStringValue('group'),
+    payerMemberId: record.getStringValue('payer'),
+    description: record.getStringValue('description'),
+    amountCents: record.getIntValue('amount_cents'),
+    splitType: record.getStringValue('split_type'),
+    date: DateTime.parse(record.getStringValue('date')),
+  );
 
   SplitEntry _splitEntryFromRecord(RecordModel record) => SplitEntry(
-        id: record.id,
-        expenseId: record.getStringValue('expense'),
-        memberId: record.getStringValue('member'),
-        amountCents: record.getIntValue('amount_cents'),
-        receiptFilename: record.getStringValue('receipt').isEmpty
-            ? null
-            : record.getStringValue('receipt'),
-      );
+    id: record.id,
+    expenseId: record.getStringValue('expense'),
+    memberId: record.getStringValue('member'),
+    amountCents: record.getIntValue('amount_cents'),
+    receiptFilename: record.getStringValue('receipt').isEmpty
+        ? null
+        : record.getStringValue('receipt'),
+  );
 }

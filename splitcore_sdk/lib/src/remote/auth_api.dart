@@ -20,9 +20,9 @@ class AuthApi {
   }
 
   Future<AppUser> signUp({required String email, required String password}) async {
-    await _pb.collection('users').create(
-      body: {'email': email, 'password': password, 'passwordConfirm': password},
-    );
+    await _pb
+        .collection('users')
+        .create(body: {'email': email, 'password': password, 'passwordConfirm': password});
     return signIn(email: email, password: password);
   }
 
@@ -40,12 +40,18 @@ class AuthApi {
     String? avatarFilename,
   }) async {
     final id = _pb.authStore.record!.id;
-    final record = await _pb.collection('users').update(
+    final record = await _pb
+        .collection('users')
+        .update(
           id,
           body: {if (name != null) 'name': name},
           files: [
             if (avatarBytes != null)
-              http.MultipartFile.fromBytes('avatar', avatarBytes, filename: avatarFilename ?? 'avatar.jpg'),
+              http.MultipartFile.fromBytes(
+                'avatar',
+                avatarBytes,
+                filename: avatarFilename ?? 'avatar.jpg',
+              ),
           ],
         );
     await _pb.collection('users').authRefresh();
@@ -71,9 +77,9 @@ class AuthApi {
   }
 
   AppUser _userFromRecord(RecordModel record) => AppUser(
-        id: record.id,
-        email: record.getStringValue('email'),
-        name: record.getStringValue('name'),
-        avatarUrl: _pb.files.getUrl(record, record.getStringValue('avatar')).toString(),
-      );
+    id: record.id,
+    email: record.getStringValue('email'),
+    name: record.getStringValue('name'),
+    avatarUrl: _pb.files.getUrl(record, record.getStringValue('avatar')).toString(),
+  );
 }

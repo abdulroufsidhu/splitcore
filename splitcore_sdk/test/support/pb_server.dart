@@ -19,11 +19,13 @@ class PbTestServer {
     final dataDir = await Directory.systemTemp.createTemp('splitcore_pb_test_');
     final serverDir = p.normalize(p.join(Directory.current.path, '..', 'server'));
 
-    final process = await Process.start(
-      'go',
-      ['run', '.', 'serve', '--http=127.0.0.1:$port', '--dir=${dataDir.path}'],
-      workingDirectory: serverDir,
-    );
+    final process = await Process.start('go', [
+      'run',
+      '.',
+      'serve',
+      '--http=127.0.0.1:$port',
+      '--dir=${dataDir.path}',
+    ], workingDirectory: serverDir);
     // PocketBase logs heavily on startup (SQL + request logs). If nobody
     // drains these streams, the OS pipe buffer fills and the child blocks
     // on write before it ever finishes starting — must drain unconditionally.

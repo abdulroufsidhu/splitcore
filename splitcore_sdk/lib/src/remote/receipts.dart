@@ -35,16 +35,19 @@ Future<SplitEntry> attachReceipt(
   required Uint8List jpegBytes,
   String filename = 'receipt.jpg',
 }) async {
-  final record = await pb.collection('split_entries').update(
-    splitEntryId,
-    files: [http.MultipartFile.fromBytes('receipt', jpegBytes, filename: filename)],
-  );
+  final record = await pb
+      .collection('split_entries')
+      .update(
+        splitEntryId,
+        files: [http.MultipartFile.fromBytes('receipt', jpegBytes, filename: filename)],
+      );
   return SplitEntry(
     id: record.id,
     expenseId: record.getStringValue('expense'),
     memberId: record.getStringValue('member'),
     amountCents: record.getIntValue('amount_cents'),
-    receiptFilename:
-        record.getStringValue('receipt').isEmpty ? null : record.getStringValue('receipt'),
+    receiptFilename: record.getStringValue('receipt').isEmpty
+        ? null
+        : record.getStringValue('receipt'),
   );
 }

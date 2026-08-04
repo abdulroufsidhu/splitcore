@@ -30,16 +30,18 @@ class SettlementsApi {
       await _resync(groupId);
     }
 
-    final record = await _pb.collection('settlements').create(
-      body: {
-        'group': groupId,
-        'from_member': fromMemberId,
-        'to_member': toMemberId,
-        'amount_cents': amountCents,
-        'date': DateTime.now().toUtc().toIso8601String(),
-        'note': note,
-      },
-    );
+    final record = await _pb
+        .collection('settlements')
+        .create(
+          body: {
+            'group': groupId,
+            'from_member': fromMemberId,
+            'to_member': toMemberId,
+            'amount_cents': amountCents,
+            'date': DateTime.now().toUtc().toIso8601String(),
+            'note': note,
+          },
+        );
     return _settlementFromRecord(record);
   }
 
@@ -68,7 +70,10 @@ class SettlementsApi {
           amountCents: expense.getIntValue('amount_cents'),
           splits: [
             for (final s in splitRecords)
-              Split(memberId: s.getStringValue('member'), amountCents: s.getIntValue('amount_cents')),
+              Split(
+                memberId: s.getStringValue('member'),
+                amountCents: s.getIntValue('amount_cents'),
+              ),
           ],
         ),
       );
@@ -92,14 +97,15 @@ class SettlementsApi {
   }
 
   Settlement _settlementFromRecord(RecordModel record) => Settlement(
-        id: record.id,
-        groupId: record.getStringValue('group'),
-        fromMemberId: record.getStringValue('from_member'),
-        toMemberId: record.getStringValue('to_member'),
-        amountCents: record.getIntValue('amount_cents'),
-        // tryParse: settlements written before this field existed have no
-        // date — don't crash listing history over old data.
-        date: DateTime.tryParse(record.getStringValue('date')) ?? DateTime.fromMillisecondsSinceEpoch(0),
-        note: record.getStringValue('note'),
-      );
+    id: record.id,
+    groupId: record.getStringValue('group'),
+    fromMemberId: record.getStringValue('from_member'),
+    toMemberId: record.getStringValue('to_member'),
+    amountCents: record.getIntValue('amount_cents'),
+    // tryParse: settlements written before this field existed have no
+    // date — don't crash listing history over old data.
+    date:
+        DateTime.tryParse(record.getStringValue('date')) ?? DateTime.fromMillisecondsSinceEpoch(0),
+    note: record.getStringValue('note'),
+  );
 }

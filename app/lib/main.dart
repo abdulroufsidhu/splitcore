@@ -102,9 +102,7 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
         future: _sdkFuture,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Scaffold(
-              body: Center(child: Text('Failed to start: ${snapshot.error}')),
-            );
+            return Scaffold(body: Center(child: Text('Failed to start: ${snapshot.error}')));
           }
           final sdk = snapshot.data;
           if (sdk == null) {

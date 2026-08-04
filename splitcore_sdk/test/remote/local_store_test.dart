@@ -11,10 +11,7 @@ void main() {
 
   test('put then snapshotFor round-trips version and balances, per group', () {
     final store = LocalStore();
-    const snapshotA = GroupSnapshot(
-      version: 3,
-      balances: [Balance(memberId: 'a', netCents: 100)],
-    );
+    const snapshotA = GroupSnapshot(version: 3, balances: [Balance(memberId: 'a', netCents: 100)]);
     const snapshotB = GroupSnapshot(version: 1, balances: []);
 
     store.put('group-a', snapshotA);

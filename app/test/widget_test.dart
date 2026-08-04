@@ -9,16 +9,18 @@ import 'package:app/widgets/money_text.dart';
 
 void main() {
   testWidgets('MoneyText colors by sign and formats +/- with currency symbol', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      theme: sliceLightTheme(),
-      home: const Column(
-        children: [
-          MoneyText(6210, 'USD'),
-          MoneyText(-3820, 'EUR'),
-          MoneyText(0, 'USD', signed: false),
-        ],
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: sliceLightTheme(),
+        home: const Column(
+          children: [
+            MoneyText(6210, 'USD'),
+            MoneyText(-3820, 'EUR'),
+            MoneyText(0, 'USD', signed: false),
+          ],
+        ),
       ),
-    ));
+    );
 
     final positive = tester.widget<Text>(find.text(r'+$62.10'));
     expect((positive.style!.color), SliceTheme.light.positive);

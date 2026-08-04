@@ -24,8 +24,8 @@ String initialsFor(GroupMember member, AppUser? me) {
 String meInitial(AppUser? me) => (me != null && me.name.isNotEmpty)
     ? me.name[0].toUpperCase()
     : (me != null && me.email.isNotEmpty)
-        ? me.email[0].toUpperCase()
-        : 'Y';
+    ? me.email[0].toUpperCase()
+    : 'Y';
 
 /// Looks up a member by user id or member id — null if not found, e.g. the
 /// current user's membership hasn't propagated yet, or a stale id from a
