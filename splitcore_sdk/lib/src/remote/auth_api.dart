@@ -67,6 +67,27 @@ class AuthApi {
 
   void signOut() => _pb.authStore.clear();
 
+  /// Closes the signed-in user's account and clears the local session.
+  ///
+  /// Returns what the server actually did:
+  ///
+  ///  * `'deleted'` — the account had no ledger history and was erased.
+  ///  * `'anonymized'` — the user appears in expenses or settlements, so
+  ///    their group membership rows must stay for everyone else's balances
+  ///    to remain correct. The identity on the account is stripped instead
+  ///    (see server/hooks/account.go). The UI must say so rather than
+  ///    claiming everything was deleted.
+  ///
+  /// Throws when the server refuses — notably while any of the user's
+  /// groups still shows a non-zero balance for them, which the user has to
+  /// settle first.
+  Future<String> deleteAccount() async {
+    if (_pb.authStore.record == null) return 'deleted';
+    final response = await _pb.send('/api/splitcore/delete-account', method: 'POST');
+    _pb.authStore.clear();
+    return (response as Map<String, dynamic>)['status'] as String? ?? 'deleted';
+  }
+
   /// Whether the signed-in user has confirmed their email address. False
   /// when nobody is signed in.
   bool get isEmailVerified => _pb.authStore.record?.getBoolValue('verified') ?? false;
