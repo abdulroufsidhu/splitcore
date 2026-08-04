@@ -10,10 +10,15 @@ wired in as record hooks.
 
 ```bash
 cd server
-go run . serve
+go run . serve --http=0.0.0.0:8090
 ```
 
-Serves on `http://127.0.0.1:8090` (API at `/api/`, admin UI at `/_/`).
+Serves on `http://0.0.0.0:8090` (API at `/api/`, admin UI at `/_/`).
+
+Without `--http`, PocketBase binds `127.0.0.1` only, and a phone, emulator,
+or Waydroid guest cannot reach it. Point the app at the host address the
+guest sees: `192.168.240.1` (Waydroid gateway), `10.0.2.2` (Android
+emulator), or the machine's LAN IP for a physical device.
 
 Migrations (`migrations/1751760000_init_collections.go`) create all six
 collections on first run. Under `go run`, `main.go` detects it's running
