@@ -71,6 +71,60 @@ class ExpensesApi {
     return _expenseFromRecord(expenseRecord);
   }
 
+  /// Rewrites an existing expense and replaces its split entries wholesale.
+  ///
+  /// The group is never changed — the server rejects re-parenting outright
+  /// (`server/hooks/hooks.go`, rejectGroupReparent), because moving an
+  /// expense between groups would leave the old group's cached balances
+  /// stale.
+  ///
+  /// Old entries are deleted before new ones are written. Between the two,
+  /// the expense's splits do not sum to its total, so the server's
+  /// recompute skips it entirely (the incomplete-expense rule in
+  /// server/README.md) — balances briefly omit this expense rather than
+  /// ever counting it twice.
+  Future<Expense> updateExpense({
+    required String expenseId,
+    required String payerMemberId,
+    required String description,
+    required DateTime date,
+    required SplitSpec split,
+  }) async {
+    // Compute before touching anything: a rejected SplitSpec must fail
+    // without having modified the stored expense at all.
+    final splits = await _calc.computeSplits(split);
+
+    final existing = await _pb
+        .collection('split_entries')
+        .getFullList(batch: 200, filter: byExpense(_pb, expenseId));
+
+    final record = await _pb
+        .collection('expenses')
+        .update(
+          expenseId,
+          body: {
+            'payer': payerMemberId,
+            'description': description,
+            'amount_cents': split.totalCents,
+            'split_type': split.type,
+            'date': date.toIso8601String(),
+          },
+        );
+
+    for (final entry in existing) {
+      await _pb.collection('split_entries').delete(entry.id);
+    }
+    for (final s in splits) {
+      await _pb
+          .collection('split_entries')
+          .create(
+            body: {'expense': expenseId, 'member': s.memberId, 'amount_cents': s.amountCents},
+          );
+    }
+
+    return _expenseFromRecord(record);
+  }
+
   /// One page of a group's expenses, newest first — powers the group-detail
   /// list. Paged rather than exhaustive: an active group accumulates
   /// thousands of expenses and a screen shows a dozen.
