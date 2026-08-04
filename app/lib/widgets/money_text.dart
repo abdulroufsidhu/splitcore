@@ -33,9 +33,19 @@ class MoneyText extends StatelessWidget {
         ? slice.negative
         : slice.settled;
     final text = signed ? formatSignedMoney(cents, currency) : formatMoney(cents, currency);
-    return Text(
-      text,
-      style: moneyStyle(size: size, weight: weight, color: color),
+    // The sign is carried by colour (green/coral) and a +/− glyph. Neither
+    // reaches a screen reader, and colour alone fails anyone who cannot
+    // tell the two apart — so the direction is stated in words. Zero is
+    // neither owed nor owing, so it stays plain.
+    return Semantics(
+      label: signed && cents != 0
+          ? '${formatMoney(cents.abs(), currency)} ${cents > 0 ? 'owed to you' : 'you owe'}'
+          : formatMoney(cents, currency),
+      excludeSemantics: true,
+      child: Text(
+        text,
+        style: moneyStyle(size: size, weight: weight, color: color),
+      ),
     );
   }
 }

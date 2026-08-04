@@ -30,6 +30,7 @@ class ReceiptViewerScreen extends StatelessWidget {
               child: Row(
                 children: [
                   IconButton(
+                    tooltip: 'Close receipt',
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close, color: Colors.white),
                   ),

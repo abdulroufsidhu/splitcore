@@ -127,4 +127,16 @@ void main() {
     expect(find.text('Retry'), findsOneWidget);
     expect(find.textContaining("You're offline"), findsNothing);
   });
+
+  testWidgets('the group list meets tap-target and labelling guidelines', (tester) async {
+    final handle = tester.ensureSemantics();
+
+    await tester.pumpWidget(_host(load: () async => [GroupRow(_group(), 'm1', 2500, 3, '', '')]));
+    await tester.pumpAndSettle();
+
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+
+    handle.dispose();
+  });
 }

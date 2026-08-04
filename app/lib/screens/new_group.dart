@@ -184,7 +184,11 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
                         onSubmitted: (_) => _addPendingEmail(),
                       ),
                     ),
-                    IconButton(icon: const Icon(Icons.add), onPressed: _addPendingEmail),
+                    IconButton(
+                      tooltip: 'Add this email',
+                      icon: const Icon(Icons.add),
+                      onPressed: _addPendingEmail,
+                    ),
                   ],
                 ),
                 if (_pendingEmails.isNotEmpty)

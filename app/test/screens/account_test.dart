@@ -146,4 +146,16 @@ void main() {
     expect(copied.single, contains('date,type'));
     expect(find.textContaining('Copied'), findsOneWidget);
   });
+
+  testWidgets('the account screen meets tap-target and labelling guidelines', (tester) async {
+    final handle = tester.ensureSemantics();
+
+    await tester.pumpWidget(_host(verified: false, resend: () async {}));
+    await tester.pumpAndSettle();
+
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+
+    handle.dispose();
+  });
 }

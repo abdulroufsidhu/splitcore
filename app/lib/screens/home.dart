@@ -211,13 +211,25 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                   ),
                                 ),
-                                GestureDetector(
-                                  onTap: () => _showAccountSheet(context),
-                                  child: Avatar(
-                                    meInitial(widget.me),
-                                    imageUrl: widget.me.avatarUrl,
-                                    background: slice.ink,
-                                    foreground: slice.paper,
+                                // The avatar is the only affordance for
+                                // reaching account settings, so it needs a
+                                // name and a 48dp target of its own.
+                                Semantics(
+                                  button: true,
+                                  label: 'Account',
+                                  child: GestureDetector(
+                                    onTap: () => _showAccountSheet(context),
+                                    child: Container(
+                                      width: 48,
+                                      height: 48,
+                                      alignment: Alignment.center,
+                                      child: Avatar(
+                                        meInitial(widget.me),
+                                        imageUrl: widget.me.avatarUrl,
+                                        background: slice.ink,
+                                        foreground: slice.paper,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ],
