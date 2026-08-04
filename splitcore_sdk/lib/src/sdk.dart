@@ -12,6 +12,7 @@ import 'remote/expenses_api.dart';
 import 'remote/groups_api.dart';
 import 'remote/local_store.dart';
 import 'remote/settlements_api.dart';
+import 'remote/token_store.dart';
 
 class SplitcoreSdk {
   SplitcoreSdk._(
@@ -28,17 +29,18 @@ class SplitcoreSdk {
   /// the same PocketBase client (so signing in on [auth] authenticates
   /// [groups], [expenses], etc.) and the same compute engine.
   ///
-  /// Pass [authStore] (e.g. an `AsyncAuthStore` backed by `shared_preferences`)
-  /// to persist the signed-in session across app restarts; defaults to
-  /// PocketBase's in-memory store, which forgets sign-in on every launch.
+  /// Pass [tokenStore] to persist the signed-in session across app
+  /// restarts; defaults to PocketBase's in-memory store, which forgets
+  /// sign-in on every launch. The interface is SDK-owned so the app never
+  /// has to import `package:pocketbase` for it.
   factory SplitcoreSdk.initialize({
     required String pocketbaseUrl,
     required String libraryPath,
-    AuthStore? authStore,
+    TokenStore? tokenStore,
   }) {
     final pb = PocketBase(
       pocketbaseUrl,
-      authStore: authStore,
+      authStore: tokenStore == null ? null : asAuthStore(tokenStore),
       httpClientFactory: () => _TimeoutClient(http.Client(), const Duration(seconds: 15)),
     );
     final calc = SplitcoreCalc.open(libraryPath);

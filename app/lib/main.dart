@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:pocketbase/pocketbase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
@@ -27,6 +26,22 @@ void main() {
   // no first-launch failure when offline.
   GoogleFonts.config.allowRuntimeFetching = false;
   runApp(const SlicePayApp());
+}
+
+/// Session persistence for the SDK, backed by shared_preferences. Keeping
+/// this here rather than taking a PocketBase AuthStore is what lets the app
+/// drop `package:pocketbase` entirely.
+class _PrefsTokenStore implements TokenStore {
+  _PrefsTokenStore(this._prefs);
+
+  final SharedPreferences _prefs;
+  static const _key = 'pb_auth';
+
+  @override
+  String? read() => _prefs.getString(_key);
+
+  @override
+  Future<void> write(String data) => _prefs.setString(_key, data);
 }
 
 class SlicePayApp extends StatefulWidget {
@@ -69,15 +84,13 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
   }
 
   Future<SplitcoreSdk> _initSdk() async {
+    // Resolve prefs first: TokenStore.read is synchronous because the SDK
+    // needs the stored session while constructing its client.
     final prefs = await SharedPreferences.getInstance();
-    final authStore = AsyncAuthStore(
-      save: (data) async => prefs.setString('pb_auth', data),
-      initial: prefs.getString('pb_auth'),
-    );
     final sdk = SplitcoreSdk.initialize(
       pocketbaseUrl: defaultBackendUrl(),
       libraryPath: _libraryPath(),
-      authStore: authStore,
+      tokenStore: _PrefsTokenStore(prefs),
     );
     currentUser.value = sdk.auth.currentUser;
     unawaited(_refreshSession());

@@ -29,4 +29,5 @@ export 'src/remote/balances_api.dart' show BalancesApi;
 export 'src/remote/expenses_api.dart' show ExpensesApi;
 export 'src/remote/groups_api.dart' show GroupsApi;
 export 'src/remote/settlements_api.dart' show SettlementsApi;
+export 'src/remote/token_store.dart' show TokenStore;
 export 'src/sdk.dart' show SplitcoreSdk;
