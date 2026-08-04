@@ -7,16 +7,10 @@ import 'package:pocketbase/pocketbase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
+import 'config.dart';
 import 'screens/home.dart';
 import 'screens/login.dart';
 import 'theme.dart';
-
-/// Default PocketBase URL: 10.0.2.2 is the Android emulator's alias for the
-/// host machine's localhost, where `cd server && go run .` serves :8090.
-const _defaultPocketbaseUrl = String.fromEnvironment(
-  'POCKETBASE_URL',
-  defaultValue: 'http://192.168.240.1:8090',
-);
 
 /// Bare soname on Android/iOS (resolved from the app's bundled native libs
 /// via the OS loader — see splitcore_sdk's bindings.dart), an absolute path
@@ -81,7 +75,7 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
       initial: prefs.getString('pb_auth'),
     );
     final sdk = SplitcoreSdk.initialize(
-      pocketbaseUrl: _defaultPocketbaseUrl,
+      pocketbaseUrl: defaultBackendUrl(),
       libraryPath: _libraryPath(),
       authStore: authStore,
     );
