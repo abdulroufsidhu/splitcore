@@ -46,25 +46,39 @@ class SettlementsApi {
     return _settlementFromRecord(record);
   }
 
-  /// A group's settlements, newest first — powers per-group and global
-  /// activity history alongside [ExpensesApi.listExpenses].
-  Future<List<Settlement>> listSettlements(String groupId) async {
+  /// One page of a group's settlements, newest first — powers per-group and
+  /// global activity history alongside [ExpensesApi.listExpenses].
+  Future<Page<Settlement>> listSettlements(String groupId, {int page = 1, int perPage = 50}) async {
+    final result = await _pb
+        .collection('settlements')
+        .getList(page: page, perPage: perPage, filter: byGroup(_pb, groupId), sort: '-date');
+    return Page<Settlement>(
+      items: [for (final r in result.items) _settlementFromRecord(r)],
+      page: result.page,
+      perPage: result.perPage,
+      totalItems: result.totalItems,
+      totalPages: result.totalPages,
+    );
+  }
+
+  /// Every settlement in the group — for balance recomputation and export.
+  Future<List<Settlement>> listAllSettlements(String groupId) async {
     final records = await _pb
         .collection('settlements')
-        .getFullList(filter: byGroup(_pb, groupId), sort: '-date');
+        .getFullList(batch: 200, filter: byGroup(_pb, groupId), sort: '-date');
     return [for (final r in records) _settlementFromRecord(r)];
   }
 
   Future<void> _resync(String groupId) async {
     final expenseRecords = await _pb
         .collection('expenses')
-        .getFullList(filter: byGroup(_pb, groupId));
+        .getFullList(batch: 200, filter: byGroup(_pb, groupId));
 
     final expenses = <ExpenseInput>[];
     for (final expense in expenseRecords) {
       final splitRecords = await _pb
           .collection('split_entries')
-          .getFullList(filter: byExpense(_pb, expense.id));
+          .getFullList(batch: 200, filter: byExpense(_pb, expense.id));
       expenses.add(
         ExpenseInput(
           payerId: expense.getStringValue('payer'),
@@ -82,7 +96,7 @@ class SettlementsApi {
 
     final settlementRecords = await _pb
         .collection('settlements')
-        .getFullList(filter: byGroup(_pb, groupId));
+        .getFullList(batch: 200, filter: byGroup(_pb, groupId));
     final settlements = [
       for (final s in settlementRecords)
         SettlementInput(

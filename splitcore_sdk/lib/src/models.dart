@@ -440,3 +440,31 @@ class SettlementInput {
     'amount_cents': amountCents,
   };
 }
+
+/// One page of a listing, with enough metadata for a UI to decide whether
+/// to fetch the next one. Returned instead of a bare List so a caller
+/// physically cannot ask for "all rows" by accident.
+class Page<T> {
+  const Page({
+    required this.items,
+    required this.page,
+    required this.perPage,
+    required this.totalItems,
+    required this.totalPages,
+  });
+
+  /// The empty case — a group with no expenses yet.
+  const Page.empty({this.perPage = 50})
+    : items = const [],
+      page = 1,
+      totalItems = 0,
+      totalPages = 0;
+
+  final List<T> items;
+  final int page;
+  final int perPage;
+  final int totalItems;
+  final int totalPages;
+
+  bool get hasMore => page < totalPages;
+}

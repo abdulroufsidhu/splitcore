@@ -54,13 +54,55 @@ class ExpensesApi {
     return _expenseFromRecord(expenseRecord);
   }
 
-  /// A group's expenses, newest first — powers the group-detail expense list.
-  Future<List<Expense>> listExpenses(String groupId) async {
+  /// One page of a group's expenses, newest first — powers the group-detail
+  /// list. Paged rather than exhaustive: an active group accumulates
+  /// thousands of expenses and a screen shows a dozen.
+  Future<Page<Expense>> listExpenses(String groupId, {int page = 1, int perPage = 50}) async {
+    final result = await _pb
+        .collection('expenses')
+        .getList(page: page, perPage: perPage, filter: byGroup(_pb, groupId), sort: '-date');
+    return _pageFrom(result);
+  }
+
+  /// Expenses in [groupId] whose description contains [query]
+  /// (case-insensitive — PocketBase's `~` operator). An empty [query]
+  /// degrades to a plain listing rather than matching everything twice.
+  Future<Page<Expense>> searchExpenses(
+    String groupId,
+    String query, {
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    if (query.trim().isEmpty) return listExpenses(groupId, page: page, perPage: perPage);
+    final result = await _pb
+        .collection('expenses')
+        .getList(
+          page: page,
+          perPage: perPage,
+          // query is user input — it MUST go through pb.filter, never into
+          // the expression by interpolation.
+          filter: _pb.filter('group = {:g} && description ~ {:q}', {'g': groupId, 'q': query}),
+          sort: '-date',
+        );
+    return _pageFrom(result);
+  }
+
+  /// Every expense in the group. Only for callers that genuinely need the
+  /// full set — balance recomputation and export — never for rendering.
+  Future<List<Expense>> listAllExpenses(String groupId) async {
     final records = await _pb
         .collection('expenses')
-        .getFullList(filter: byGroup(_pb, groupId), sort: '-date');
+        .getFullList(batch: 200, filter: byGroup(_pb, groupId), sort: '-date');
     return [for (final r in records) _expenseFromRecord(r)];
   }
+
+  Page<Expense> _pageFrom(ResultList<RecordModel> result) => Page<Expense>(
+    items: [for (final r in result.items) _expenseFromRecord(r)],
+    page: result.page,
+    perPage: result.perPage,
+    totalItems: result.totalItems,
+    totalPages: result.totalPages,
+  );
 
   Future<List<SplitEntry>> listSplitEntries(String expenseId) async {
     final records = await _pb

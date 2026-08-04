@@ -98,7 +98,8 @@ void main() {
 
     final expenses = await expensesApi.listExpenses(group.id);
 
-    expect(expenses.map((e) => e.id), [second.id, first.id]);
+    expect(expenses.items.map((e) => e.id), [second.id, first.id]);
+    expect(expenses.totalItems, 2);
   });
 
   test('receiptUrl builds the PocketBase file URL, and is null with no receipt', () async {

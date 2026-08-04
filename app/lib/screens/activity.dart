@@ -31,8 +31,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
     final items = <ActivityItem>[];
     for (final group in groups) {
       final members = await widget.sdk.groups.listMembers(group.id);
-      final expenses = await widget.sdk.expenses.listExpenses(group.id);
-      final settlements = await widget.sdk.settlements.listSettlements(group.id);
+      // The global feed genuinely wants every row per group, not a page.
+      final expenses = await widget.sdk.expenses.listAllExpenses(group.id);
+      final settlements = await widget.sdk.settlements.listAllSettlements(group.id);
       items.addAll(
         buildActivity(
           group: group,

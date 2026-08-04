@@ -14,6 +14,7 @@ export 'src/models.dart'
         ExpenseInput,
         Group,
         GroupMember,
+        Page,
         PercentSplitEntry,
         Settlement,
         SettlementInput,

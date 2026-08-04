@@ -40,8 +40,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     try {
       final members = await widget.sdk.groups.listMembers(widget.group.id);
       final balances = await widget.sdk.balances.getBalances(widget.group.id);
-      final expenses = await widget.sdk.expenses.listExpenses(widget.group.id);
-      final settlements = await widget.sdk.settlements.listSettlements(widget.group.id);
+      // First page only — the group detail list gets real paging in the
+      // app-usability plan; until then this is the newest 50.
+      final expenses = (await widget.sdk.expenses.listExpenses(widget.group.id)).items;
+      final settlements = (await widget.sdk.settlements.listSettlements(widget.group.id)).items;
       final activity = buildActivity(
         group: widget.group,
         members: members,

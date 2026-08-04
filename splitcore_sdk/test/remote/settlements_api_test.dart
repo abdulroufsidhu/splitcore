@@ -93,7 +93,8 @@ void main() {
 
     final settlements = await settlementsApi.listSettlements(group.id);
 
-    expect(settlements.map((s) => s.id), [second.id, first.id]);
+    expect(settlements.items.map((s) => s.id), [second.id, first.id]);
+    expect(settlements.totalItems, 2);
   });
 
   test('resyncs balances into the local store before creating a settlement when stale', () async {
