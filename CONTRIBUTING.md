@@ -51,6 +51,13 @@ Conventional Commits: `feat:`, `fix:`, `refactor:`, `docs:`, `build:`,
 `test:`, `chore:`. Explain **why** in the body when the change is not
 self-evident. Small, frequent commits over one large one.
 
+## Releasing
+
+Bump `version:` in `app/pubspec.yaml` (GitHub release) or
+`splitcore_sdk/pubspec.yaml` (pub.dev), merge to `master`, and CI ships it.
+Full details, including the one-time pub.dev setup, in
+[docs/RELEASING.md](docs/RELEASING.md).
+
 ## Money rules
 
 - `int64` minor units everywhere. Never a float, never a `double`.

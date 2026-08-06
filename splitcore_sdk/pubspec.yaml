@@ -3,7 +3,13 @@ description: >
   Dart SDK wrapping the splitcore FFI library (split/settlement/balance math)
   and PocketBase communication for expense-splitting clients.
 version: 0.1.0
-publish_to: "none"
+repository: https://github.com/abdulroufsidhu/splitcore
+issue_tracker: https://github.com/abdulroufsidhu/splitcore/issues
+documentation: https://github.com/abdulroufsidhu/splitcore/blob/master/splitcore_sdk/README.md
+topics:
+  - ffi
+  - expenses
+  - pocketbase
 
 environment:
   sdk: ^3.9.0

@@ -37,7 +37,8 @@ for t in "${targets[@]}"; do
   env CGO_ENABLED=1 GOOS=android GOARCH="$goarch" \
     ${goarch:+$( [[ $goarch == arm ]] && echo GOARM=7 )} \
     CC="$TOOLCHAIN/${triple}${API}-clang" \
-    go build -buildmode=c-shared -o "$OUT/$abi/libsplitcore.so" ./ffi
+    go build -buildmode=c-shared -trimpath -ldflags="-s -w" \
+      -o "$OUT/$abi/libsplitcore.so" ./ffi
 done
 
 echo "Done. jniLibs at: $OUT"

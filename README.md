@@ -72,12 +72,13 @@ below).
 ## Running the app
 
 ```bash
-cd app && flutter run --dart-define=POCKETBASE_URL=https://your-server
+cd app && flutter run   # talks to https://splitcore.orgolink.ch
 ```
 
-Without the define, the app targets the local dev server — `10.0.2.2:8090`
-on Android emulators, `127.0.0.1:8090` elsewhere. Physical devices always
-need the explicit define. See [`app/README.md`](app/README.md).
+That deployed server is the built-in default. `make app` overrides it with
+`--dart-define=POCKETBASE_URL=http://127.0.0.1:8090` for local work; pass
+`POCKETBASE_URL=http://10.0.2.2:8090` (emulator) or a LAN address (physical
+device) to reach a server elsewhere. See [`app/README.md`](app/README.md).
 
 ## Running the tests
 

@@ -21,14 +21,15 @@ the Android NDK) before the first Android run.
 
 ## Point it at a different server
 
-```bash
-flutter run --dart-define=POCKETBASE_URL=https://splitcore.example.com
-```
+Without an override the app talks to the deployed server,
+`https://splitcore.orgolink.ch` — see `lib/config.dart`. `make app` passes
+`--dart-define=POCKETBASE_URL=http://127.0.0.1:8090` so the dev loop stays
+local; override it for an emulator or device:
 
-Without an override the app targets `10.0.2.2:8090` on Android (the
-emulator's alias for the host) and `127.0.0.1:8090` everywhere else — see
-`lib/config.dart`. A **physical device** matches neither and always needs
-the explicit define.
+```bash
+make app POCKETBASE_URL=http://10.0.2.2:8090   # Android emulator's host alias
+flutter run --dart-define=POCKETBASE_URL=http://<LAN IP>:8090  # physical device
+```
 
 ## Tests
 

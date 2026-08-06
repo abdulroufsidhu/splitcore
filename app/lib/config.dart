@@ -1,30 +1,23 @@
-// Where the app looks for the PocketBase server. A default is only ever a
-// development convenience: any real build passes
-// --dart-define=POCKETBASE_URL=https://... and never reaches the fallbacks.
-import 'dart:io';
+// Where the app looks for the PocketBase server. Builds hit the deployed
+// server by default; local work passes
+// --dart-define=POCKETBASE_URL=http://... to point somewhere else.
 
 /// The compile-time override. Empty when no --dart-define was passed.
 const _override = String.fromEnvironment('POCKETBASE_URL');
 
-/// Port the server binds by default (`make server`).
-const _devPort = 8090;
+/// The deployed server every build talks to unless overridden.
+const _deployedUrl = 'https://splitcore.orgolink.ch';
 
-/// Picks the dev-time server URL for the running platform.
+/// Picks the server URL: [override] wins outright when non-empty, otherwise
+/// the deployed server.
 ///
-/// [override] wins outright when non-empty. Otherwise: Android maps to
-/// `10.0.2.2`, the emulator's alias for the host machine's loopback (a
-/// plain `127.0.0.1` inside the emulator is the emulator itself). Every
-/// other platform — iOS simulator, Linux, macOS, Windows, web — shares the
-/// host's loopback and uses `127.0.0.1` directly.
-///
-/// A physical device is on neither: it must be given an explicit
-/// --dart-define pointing at the host's LAN address or a deployed server.
-String resolveBackendUrl({required String override, required bool isAndroid, required bool isIos}) {
-  if (override.isNotEmpty) return override;
-  if (isAndroid) return 'http://10.0.2.2:$_devPort';
-  return 'http://127.0.0.1:$_devPort';
-}
+/// Local development points at a `make server` instance explicitly —
+/// `http://127.0.0.1:8090` on desktop and the iOS simulator,
+/// `http://10.0.2.2:8090` from the Android emulator (a plain `127.0.0.1`
+/// inside the emulator is the emulator itself), a LAN address from a
+/// physical device.
+String resolveBackendUrl({required String override}) =>
+    override.isNotEmpty ? override : _deployedUrl;
 
-/// [resolveBackendUrl] applied to the real platform and dart-defines.
-String defaultBackendUrl() =>
-    resolveBackendUrl(override: _override, isAndroid: Platform.isAndroid, isIos: Platform.isIOS);
+/// [resolveBackendUrl] applied to the real dart-defines.
+String defaultBackendUrl() => resolveBackendUrl(override: _override);

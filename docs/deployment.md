@@ -28,7 +28,7 @@ Terminate TLS at a reverse proxy. Caddy needs the least configuration
 because it obtains and renews certificates itself:
 
 ```caddyfile
-splitcore.example.com {
+splitcore.orgolink.ch {
     reverse_proxy 127.0.0.1:8090
 
     # The admin UI should not be world-reachable.
@@ -48,7 +48,7 @@ nginx equivalent: `proxy_pass http://127.0.0.1:8090;` plus
 Then point clients at it:
 
 ```bash
-flutter build apk --dart-define=POCKETBASE_URL=https://splitcore.example.com
+flutter build apk --dart-define=POCKETBASE_URL=https://splitcore.orgolink.ch
 ```
 
 ## Backups

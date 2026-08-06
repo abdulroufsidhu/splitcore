@@ -14,10 +14,16 @@ import 'theme.dart';
 
 /// Bare soname on Android/iOS (resolved from the app's bundled native libs
 /// via the OS loader — see splitcore_sdk's bindings.dart), an absolute path
-/// on desktop for local dev against splitcore/build/out/linux.
+/// on desktop for local dev against splitcore/build/out/linux. On Windows the
+/// bare name resolves against the .exe's own directory, where the release
+/// workflow drops splitcore.dll.
 String _libraryPath() {
   if (Platform.isAndroid || Platform.isIOS) return 'libsplitcore.so';
-  return const String.fromEnvironment('SPLITCORE_LIB_PATH', defaultValue: 'libsplitcore.so');
+  const fallback = String.fromEnvironment('SPLITCORE_LIB_PATH');
+  if (fallback.isNotEmpty) return fallback;
+  if (Platform.isWindows) return 'splitcore.dll';
+  if (Platform.isMacOS) return 'libsplitcore.dylib';
+  return 'libsplitcore.so';
 }
 
 void main() {

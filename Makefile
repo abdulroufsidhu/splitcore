@@ -1,8 +1,12 @@
 # Single entry point for every development task. CI runs these same
 # targets, so "green locally" and "green in CI" mean the same thing.
 .DEFAULT_GOAL := help
-.PHONY: help native bundle-native server app test test-go test-sdk test-app \
+.PHONY: help native bundle-native apk server app test test-go test-sdk test-app \
         fmt fmt-check vet analyze check clean
+
+# `make app` targets the local server; the app's own default is the deployed
+# one. Override for an emulator or device: make app POCKETBASE_URL=http://10.0.2.2:8090
+POCKETBASE_URL ?= http://127.0.0.1:8090
 
 SPLITCORE_SO := splitcore/build/out/linux/libsplitcore.so
 JNI_LIBS     := splitcore/build/out/android/jniLibs
@@ -23,11 +27,16 @@ bundle-native: ## Copy Android jniLibs into the Flutter runner tree
 	cp -r $(JNI_LIBS)/. $(APP_JNI)/
 	@echo "Bundled jniLibs into $(APP_JNI)"
 
+apk: bundle-native ## Build per-ABI release APKs (one per architecture, ~1/3 the size of a fat APK)
+	cd app && flutter build apk --release --split-per-abi \
+		--obfuscate --split-debug-info=build/symbols
+
 server: ## Run the PocketBase server on all interfaces, port 8090
 	cd server && go run . serve --http=0.0.0.0:8090
 
 app: native ## Run the Flutter app against a local server
 	cd app && flutter run \
+		--dart-define=POCKETBASE_URL=$(POCKETBASE_URL) \
 		--dart-define=SPLITCORE_LIB_PATH=$(CURDIR)/$(SPLITCORE_SO)
 
 test: test-go test-sdk test-app ## Run every test suite

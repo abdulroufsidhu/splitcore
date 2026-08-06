@@ -73,6 +73,13 @@ to handle that themselves.
 
 ## Loading the native library
 
+This package is pure Dart — the native library is **not** bundled in the pub
+archive, because it is a per-platform binary. Download
+`splitcore-native-v<version>.zip` from a
+[GitHub release](https://github.com/abdulroufsidhu/splitcore/releases) (it
+contains every Android ABI plus Linux and Windows), or build it yourself from
+`splitcore/build/`.
+
 `SplitcoreSdk.initialize` (and `SplitcoreCalc.open`) take an explicit path
 to the shared library, matching how each platform ships it:
 
@@ -82,6 +89,8 @@ to the shared library, matching how each platform ships it:
   `splitcore/build/build_android.sh`; a Flutter app bundling this package
   can resolve it via `DynamicLibrary.open('libsplitcore.so')` once packaged
   under `android/app/src/main/jniLibs`.
+- **Windows:** `splitcore.dll` next to the executable, built by
+  `splitcore/build/build_windows.sh`.
 - **iOS:** a static `.a` from `splitcore/build/build_ios.sh` (not
   dynamically loadable the same way — iOS integration is unverified in
   this environment and needs to be linked into the app target directly;
