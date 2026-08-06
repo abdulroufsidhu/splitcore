@@ -211,6 +211,7 @@ class ExpensesApi {
     amountCents: record.getIntValue('amount_cents'),
     splitType: record.getStringValue('split_type'),
     date: DateTime.parse(record.getStringValue('date')),
+    updated: DateTime.tryParse(record.getStringValue('updated')),
   );
 
   SplitEntry _splitEntryFromRecord(RecordModel record) => SplitEntry(

@@ -296,6 +296,8 @@ class Expense {
     required this.amountCents,
     required this.splitType,
     required this.date,
+    this.updated,
+    this.pending = false,
   });
 
   final String id;
@@ -306,6 +308,18 @@ class Expense {
   final String splitType;
   final DateTime date;
 
+  /// The server's own `updated` stamp, or null for a row created locally
+  /// that the server has not seen yet. This is the base a queued edit is
+  /// measured against: if the server's stamp has moved by the time the edit
+  /// is replayed, somebody else changed the expense and the edit parks as a
+  /// conflict rather than overwriting them.
+  final DateTime? updated;
+
+  /// True while a write to this expense is still queued in the outbox. The
+  /// UI greys such a row: the numbers are real and local, but nobody else
+  /// can see them yet.
+  final bool pending;
+
   @override
   bool operator ==(Object other) =>
       other is Expense &&
@@ -315,11 +329,22 @@ class Expense {
       other.description == description &&
       other.amountCents == amountCents &&
       other.splitType == splitType &&
-      other.date == date;
+      other.date == date &&
+      other.updated == updated &&
+      other.pending == pending;
 
   @override
-  int get hashCode =>
-      Object.hash(id, groupId, payerMemberId, description, amountCents, splitType, date);
+  int get hashCode => Object.hash(
+    id,
+    groupId,
+    payerMemberId,
+    description,
+    amountCents,
+    splitType,
+    date,
+    updated,
+    pending,
+  );
 
   @override
   String toString() =>
