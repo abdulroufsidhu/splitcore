@@ -419,55 +419,63 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                                   itemBuilder: (context, i) {
                                     final item = activity[i];
                                     final isSettlement = item.kind == ActivityKind.settlement;
-                                    return ListTile(
-                                      leading: Container(
-                                        width: 38,
-                                        height: 38,
-                                        decoration: BoxDecoration(
-                                          color: slice.card,
-                                          border: Border.all(color: slice.border),
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: Icon(
-                                          isSettlement ? Icons.swap_horiz : Icons.receipt_long,
-                                          size: 18,
-                                          color: slice.muted,
-                                        ),
-                                      ),
-                                      title: Text(
-                                        item.title,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 15,
-                                          color: slice.ink,
-                                        ),
-                                      ),
-                                      subtitle: Text(
-                                        item.subtitle,
-                                        style: TextStyle(fontSize: 12, color: slice.muted),
-                                      ),
-                                      trailing: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        crossAxisAlignment: CrossAxisAlignment.end,
-                                        children: [
-                                          MoneyText(
-                                            item.amountCents,
-                                            widget.group.currency,
-                                            signed: false,
-                                            size: 15,
+                                    // Unsent: the figures are real and local,
+                                    // but nobody else can see them yet. Faded
+                                    // rather than hidden — the user made this
+                                    // entry and must still find it.
+                                    final unsent = item.expense?.pending ?? false;
+                                    return Opacity(
+                                      opacity: unsent ? 0.55 : 1,
+                                      child: ListTile(
+                                        leading: Container(
+                                          width: 38,
+                                          height: 38,
+                                          decoration: BoxDecoration(
+                                            color: slice.card,
+                                            border: Border.all(color: slice.border),
+                                            borderRadius: BorderRadius.circular(10),
                                           ),
-                                        ],
-                                      ),
-                                      onTap: item.expense == null
-                                          ? null
-                                          : () => _openReceiptIfAny(context, item.expense!),
-                                      onLongPress: item.expense == null
-                                          ? null
-                                          : () => _showExpenseActions(
-                                              context,
-                                              item.expense!,
-                                              data.members,
+                                          child: Icon(
+                                            isSettlement ? Icons.swap_horiz : Icons.receipt_long,
+                                            size: 18,
+                                            color: slice.muted,
+                                          ),
+                                        ),
+                                        title: Text(
+                                          item.title,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 15,
+                                            color: slice.ink,
+                                          ),
+                                        ),
+                                        subtitle: Text(
+                                          item.subtitle,
+                                          style: TextStyle(fontSize: 12, color: slice.muted),
+                                        ),
+                                        trailing: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          children: [
+                                            MoneyText(
+                                              item.amountCents,
+                                              widget.group.currency,
+                                              signed: false,
+                                              size: 15,
                                             ),
+                                          ],
+                                        ),
+                                        onTap: item.expense == null
+                                            ? null
+                                            : () => _openReceiptIfAny(context, item.expense!),
+                                        onLongPress: item.expense == null
+                                            ? null
+                                            : () => _showExpenseActions(
+                                                context,
+                                                item.expense!,
+                                                data.members,
+                                              ),
+                                      ),
                                     );
                                   },
                                 ),

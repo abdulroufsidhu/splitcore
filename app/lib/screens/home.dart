@@ -604,14 +604,34 @@ class _SyncBanner extends StatefulWidget {
 class _SyncBannerState extends State<_SyncBanner> {
   StreamSubscription<SyncEvent>? _sub;
   bool _failing = false;
+  int _conflicts = 0;
+  int _unsent = 0;
 
   @override
   void initState() {
     super.initState();
+    unawaited(_refreshCounts());
     _sub = widget.sync.events.listen((event) {
-      final failing = event is SyncFailed;
-      if (failing == _failing || event is SyncStarted) return;
-      setState(() => _failing = failing);
+      if (event is SyncStarted) return;
+      if (event is SyncFailed) {
+        if (!_failing) setState(() => _failing = true);
+        return;
+      }
+      if (_failing) setState(() => _failing = false);
+      unawaited(_refreshCounts());
+    });
+  }
+
+  /// Queue depth is read from the engine rather than tracked from events:
+  /// the banner can be built after ops were already queued, and a count
+  /// accumulated from events would start at zero and lie.
+  Future<void> _refreshCounts() async {
+    final conflicts = (await widget.sync.conflicts()).length;
+    final unsent = (await widget.sync.queued()).length;
+    if (!mounted || (conflicts == _conflicts && unsent == _unsent)) return;
+    setState(() {
+      _conflicts = conflicts;
+      _unsent = unsent;
     });
   }
 
@@ -623,21 +643,39 @@ class _SyncBannerState extends State<_SyncBanner> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_failing) return const SizedBox.shrink();
+    // A conflict outranks being offline: it is the only one that needs a
+    // decision from the user rather than just patience.
+    final message = switch ((_conflicts, _failing, _unsent)) {
+      (final c, _, _) when c > 0 =>
+        c == 1
+            ? "1 change couldn't be applied — someone else edited it."
+            : "$c changes couldn't be applied — someone else edited them.",
+      (_, true, final u) when u > 0 =>
+        u == 1
+            ? "You're offline — 1 change will sync when you reconnect."
+            : "You're offline — $u changes will sync when you reconnect.",
+      (_, true, _) => "You're offline — showing saved data.",
+      (_, false, final u) when u > 0 => 'Syncing $u change${u == 1 ? '' : 's'}…',
+      _ => null,
+    };
+    if (message == null) return const SizedBox.shrink();
+
     final slice = context.slice;
+    final needsAttention = _conflicts > 0;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       color: slice.chip,
       child: Row(
         children: [
-          Icon(Icons.cloud_off_outlined, size: 18, color: slice.muted),
+          Icon(
+            needsAttention ? Icons.error_outline : Icons.cloud_off_outlined,
+            size: 18,
+            color: slice.muted,
+          ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              "You're offline — showing saved data.",
-              style: TextStyle(fontSize: 12.5, color: slice.ink),
-            ),
+            child: Text(message, style: TextStyle(fontSize: 12.5, color: slice.ink)),
           ),
           TextButton(onPressed: widget.sync.now, child: const Text('Retry')),
         ],
