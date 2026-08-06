@@ -14,15 +14,29 @@ class ExpenseDao {
   ///
   /// The delete cascades to split_entries (see schema.dart), so entries for
   /// a dropped expense go with it.
+  /// [protectedIds] survive the delete even though the server did not send
+  /// them: they are rows with an unsent write behind them. Without this a
+  /// pull that overlaps a local write erases the user's offline work while
+  /// its outbox op sits queued, and the row only reappears — if at all —
+  /// after the op is replayed.
   void replaceGroupExpenses(
     String groupId,
     List<Expense> expenses,
-    Map<String, List<SplitEntry>> splitsByExpenseId,
-  ) {
-    _db.raw.execute('DELETE FROM expenses WHERE group_id = ?', [groupId]);
+    Map<String, List<SplitEntry>> splitsByExpenseId, {
+    Set<String> protectedIds = const {},
+  }) {
+    if (protectedIds.isEmpty) {
+      _db.raw.execute('DELETE FROM expenses WHERE group_id = ?', [groupId]);
+    } else {
+      final placeholders = List.filled(protectedIds.length, '?').join(',');
+      _db.raw.execute('DELETE FROM expenses WHERE group_id = ? AND id NOT IN ($placeholders)', [
+        groupId,
+        ...protectedIds,
+      ]);
+    }
 
     final expenseStatement = _db.raw.prepare('''
-      INSERT INTO expenses
+      INSERT OR REPLACE INTO expenses
         (id, group_id, payer_member_id, description, amount_cents, split_type, date, updated,
          pending)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
@@ -33,6 +47,9 @@ class ExpenseDao {
     ''');
     try {
       for (final e in expenses) {
+        // A row still carrying an unsent edit keeps the local version: the
+        // server's copy is what that edit was built to replace.
+        if (protectedIds.contains(e.id)) continue;
         expenseStatement.execute([
           e.id,
           e.groupId,
@@ -89,6 +106,26 @@ class ExpenseDao {
   // are LIKE wildcards, not literals.
   String _escapeLike(String input) =>
       input.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
+
+  Expense? byId(String expenseId) {
+    final rows = _db.raw.select('SELECT * FROM expenses WHERE id = ?', [expenseId]);
+    if (rows.isEmpty) return null;
+    final r = rows.first;
+    return Expense(
+      id: r['id'] as String,
+      groupId: r['group_id'] as String,
+      payerMemberId: r['payer_member_id'] as String,
+      description: r['description'] as String,
+      amountCents: r['amount_cents'] as int,
+      splitType: r['split_type'] as String,
+      date: DateTime.parse(r['date'] as String),
+      updated: switch (r['updated']) {
+        final String u => DateTime.parse(u),
+        _ => null,
+      },
+      pending: (r['pending'] as int) == 1,
+    );
+  }
 
   /// The server's `updated` stamp for [expenseId] as stored, or null when
   /// the row is local-only. Returned as the raw string so a queued op

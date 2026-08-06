@@ -32,6 +32,15 @@ export 'src/repo/expenses_repository.dart' show ExpensesRepository;
 export 'src/repo/groups_repository.dart' show GroupsRepository;
 export 'src/repo/settlements_repository.dart' show SettlementsRepository;
 export 'src/sdk.dart' show SplitcoreSdk;
-export 'src/sync/events.dart' show SyncCompleted, SyncEvent, SyncFailed, SyncStarted;
+export 'src/sync/events.dart'
+    show
+        ReceiptMissing,
+        SyncCompleted,
+        SyncConflict,
+        SyncEvent,
+        SyncFailed,
+        SyncOpFailed,
+        SyncStarted;
+export 'src/sync/outbox_op.dart' show OutboxOp, OutboxOps;
 export 'src/sync/sync_engine.dart' show SyncEngine;
 export 'src/sync/connectivity.dart' show AlwaysOnline, ConnectivityMonitor, FakeConnectivityMonitor;

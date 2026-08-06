@@ -71,6 +71,109 @@ class ExpensesApi {
     return _expenseFromRecord(expenseRecord);
   }
 
+  /// Replays a locally-created expense, keeping the id it was minted with.
+  ///
+  /// Splits are passed in rather than recomputed: they were computed by the
+  /// same Go engine when the write happened offline, and recomputing here
+  /// would silently substitute a different answer if the spec were
+  /// reinterpreted. The rollback below is the same one createExpense uses.
+  Future<Expense> createExpenseWithId({
+    required String id,
+    required String groupId,
+    required String payerMemberId,
+    required String description,
+    required DateTime date,
+    required int amountCents,
+    required String splitType,
+    required List<Split> splits,
+  }) async {
+    final expenseRecord = await _pb
+        .collection('expenses')
+        .create(
+          body: {
+            'id': id,
+            'group': groupId,
+            'payer': payerMemberId,
+            'description': description,
+            'amount_cents': amountCents,
+            'split_type': splitType,
+            'date': date.toIso8601String(),
+          },
+        );
+
+    try {
+      for (final s in splits) {
+        await _pb
+            .collection('split_entries')
+            .create(
+              body: {
+                'expense': expenseRecord.id,
+                'member': s.memberId,
+                'amount_cents': s.amountCents,
+              },
+            );
+      }
+    } catch (_) {
+      try {
+        await _pb.collection('expenses').delete(expenseRecord.id);
+      } catch (_) {}
+      rethrow;
+    }
+
+    return _expenseFromRecord(expenseRecord);
+  }
+
+  /// Replays a locally-made edit with splits already computed. See
+  /// [updateExpense] for why the entries are deleted before the new ones are
+  /// written.
+  Future<Expense> replaceExpense({
+    required String expenseId,
+    required String payerMemberId,
+    required String description,
+    required DateTime date,
+    required int amountCents,
+    required String splitType,
+    required List<Split> splits,
+  }) async {
+    final existing = await _pb
+        .collection('split_entries')
+        .getFullList(batch: 200, filter: byExpense(_pb, expenseId));
+
+    final record = await _pb
+        .collection('expenses')
+        .update(
+          expenseId,
+          body: {
+            'payer': payerMemberId,
+            'description': description,
+            'amount_cents': amountCents,
+            'split_type': splitType,
+            'date': date.toIso8601String(),
+          },
+        );
+
+    for (final entry in existing) {
+      await _pb.collection('split_entries').delete(entry.id);
+    }
+    for (final s in splits) {
+      await _pb
+          .collection('split_entries')
+          .create(
+            body: {'expense': expenseId, 'member': s.memberId, 'amount_cents': s.amountCents},
+          );
+    }
+
+    return _expenseFromRecord(record);
+  }
+
+  /// The server's current `updated` stamp for [expenseId], as the raw string
+  /// it sent — the value a queued edit's conflict base is compared against.
+  Future<String?> updatedOf(String expenseId) async {
+    final record = await _pb.collection('expenses').getOne(expenseId);
+    final value = record.getStringValue('updated');
+    return value.isEmpty ? null : value;
+  }
+
   /// Rewrites an existing expense and replaces its split entries wholesale.
   ///
   /// The group is never changed — the server rejects re-parenting outright

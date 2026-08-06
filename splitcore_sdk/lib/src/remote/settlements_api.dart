@@ -52,6 +52,35 @@ class SettlementsApi {
     return _settlementFromRecord(record);
   }
 
+  /// Replays a locally-recorded settlement, keeping its minted id so a
+  /// retry that already landed is recognised rather than double-counted.
+  /// The staleness guard lives in the push path, which pulls a group whose
+  /// server version moved before replaying anything for it.
+  Future<Settlement> createSettlementWithId({
+    required String id,
+    required String groupId,
+    required String fromMemberId,
+    required String toMemberId,
+    required int amountCents,
+    required DateTime date,
+    String note = '',
+  }) async {
+    final record = await _pb
+        .collection('settlements')
+        .create(
+          body: {
+            'id': id,
+            'group': groupId,
+            'from_member': fromMemberId,
+            'to_member': toMemberId,
+            'amount_cents': amountCents,
+            'date': date.toUtc().toIso8601String(),
+            'note': note,
+          },
+        );
+    return _settlementFromRecord(record);
+  }
+
   /// One page of a group's settlements, newest first — powers per-group and
   /// global activity history alongside [ExpensesApi.listExpenses].
   Future<Page<Settlement>> listSettlements(String groupId, {int page = 1, int perPage = 50}) async {

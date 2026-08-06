@@ -18,6 +18,7 @@ import 'remote/token_store.dart';
 import 'repo/balances_repository.dart';
 import 'repo/expenses_repository.dart';
 import 'repo/groups_repository.dart';
+import 'repo/local_ledger.dart';
 import 'repo/settlements_repository.dart';
 import 'sync/connectivity.dart';
 import 'sync/sync_engine.dart';
@@ -67,6 +68,7 @@ class SplitcoreSdk {
     );
     final calc = SplitcoreCalc.open(libraryPath);
     final db = databasePath == null ? SplitcoreDb.inMemory() : SplitcoreDb.openAt(databasePath);
+    final ledger = LocalLedger(db, calc);
 
     final groupsApi = GroupsApi(pb);
     final expensesApi = ExpensesApi(pb, calc);
@@ -86,13 +88,14 @@ class SplitcoreSdk {
       balances: balancesApi,
       staleness: (groupId, localVersion) =>
           checkStaleness(pb, groupId: groupId, localVersion: localVersion),
+      recomputeBalances: ledger.recompute,
     )..start();
 
     return SplitcoreSdk._(
       AuthApi(pb),
       GroupsRepository(db, groupsApi, sync),
-      ExpensesRepository(db, expensesApi, sync),
-      SettlementsRepository(db, settlementsApi, sync),
+      ExpensesRepository(db, expensesApi, sync, calc),
+      SettlementsRepository(db, sync, calc),
       BalancesRepository(db),
       ExportApi(groupsApi, expensesApi, settlementsApi),
       sync,
