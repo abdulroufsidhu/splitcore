@@ -8,12 +8,14 @@ class SyncStateDao {
 
   final SplitcoreDb _db;
 
-  /// 0 for a group never synced, deliberately lower than any real server
-  /// version — the first staleness check then always reports stale and
-  /// pulls.
+  /// -1 for a group never synced. Not 0: the server's staleness check is a
+  /// plain `clientVersion == serverVersion`, and a freshly created group is
+  /// version 0 there — so a 0 sentinel reports "current" and the very first
+  /// pull skips the group, leaving it with no members or expenses locally.
+  /// -1 is below every real version, so the first check always pulls.
   int versionOf(String groupId) {
     final rows = _db.raw.select('SELECT version FROM sync_state WHERE group_id = ?', [groupId]);
-    return rows.isEmpty ? 0 : rows.first['version'] as int;
+    return rows.isEmpty ? -1 : rows.first['version'] as int;
   }
 
   DateTime? syncedAt(String groupId) {

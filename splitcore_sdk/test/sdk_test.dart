@@ -47,7 +47,9 @@ void main() {
         split: SplitSpec.equal(totalCents: 2000, memberIds: [ownerMember.id, friendMember.id]),
       );
 
-      final balances = await sdk.balances.getBalances(group.id);
+      // Local rows, not a fetch: the writes above each ran a pull, so the
+      // balances the app renders come out of the local database.
+      final balances = await sdk.balances.get(group.id);
       expect(balances.fold<int>(0, (sum, b) => sum + b.netCents), 0);
 
       final transfers = await sdk.settleUp(balances);
@@ -56,10 +58,8 @@ void main() {
       expect(transfers.single.toMemberId, ownerMember.id);
       expect(transfers.single.amountCents, 1000);
 
-      final refreshedGroup = await sdk.groups.getGroup(group.id);
       final settlement = await sdk.settlements.createSettlement(
         groupId: group.id,
-        localVersion: refreshedGroup.version,
         fromMemberId: transfers.single.fromMemberId,
         toMemberId: transfers.single.toMemberId,
         amountCents: transfers.single.amountCents,

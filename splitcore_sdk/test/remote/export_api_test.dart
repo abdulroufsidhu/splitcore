@@ -7,7 +7,6 @@ import 'package:splitcore_sdk/src/remote/auth_api.dart';
 import 'package:splitcore_sdk/src/remote/expenses_api.dart';
 import 'package:splitcore_sdk/src/remote/export_api.dart';
 import 'package:splitcore_sdk/src/remote/groups_api.dart';
-import 'package:splitcore_sdk/src/remote/local_store.dart';
 import 'package:splitcore_sdk/src/remote/settlements_api.dart';
 import 'package:test/test.dart';
 
@@ -34,7 +33,7 @@ void main() {
     final auth = AuthApi(pb);
     final groupsApi = GroupsApi(pb);
     expensesApi = ExpensesApi(pb, calc);
-    settlementsApi = SettlementsApi(pb, calc, LocalStore());
+    settlementsApi = SettlementsApi(pb, (_) async {});
     exportApi = ExportApi(groupsApi, expensesApi, settlementsApi);
 
     final ownerUser = await auth.signUp(

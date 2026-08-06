@@ -170,8 +170,11 @@ void main() {
     expect(BalanceDao(db).listBalances('g1'), const [Balance(memberId: 'm1', netCents: 0)]);
   });
 
-  test('an unsynced group reports version 0 so the first staleness check always pulls', () {
-    expect(SyncStateDao(db).versionOf('g1'), 0);
+  test('an unsynced group reports -1 so the first staleness check always pulls', () {
+    // Not 0: the server reports current when clientVersion == serverVersion,
+    // and a freshly created group is version 0 there. A 0 sentinel would
+    // match and skip the first pull entirely.
+    expect(SyncStateDao(db).versionOf('g1'), -1);
     expect(SyncStateDao(db).syncedAt('g1'), isNull);
   });
 

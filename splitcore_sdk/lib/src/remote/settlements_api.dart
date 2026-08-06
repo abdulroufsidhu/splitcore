@@ -5,18 +5,24 @@
 // settlement against known-stale local state.
 import 'package:pocketbase/pocketbase.dart';
 
-import '../calc_api.dart';
 import '../models.dart';
 import 'filters.dart';
-import 'local_store.dart';
 import 'staleness_api.dart';
 
+/// Brings [groupId]'s local state up to date. Injected as a callback rather
+/// than a dependency on the sync engine, which would be a cycle: the engine
+/// already owns this API.
+typedef ResyncGroup = Future<void> Function(String groupId);
+
 class SettlementsApi {
-  SettlementsApi(this._pb, this._calc, this._store);
+  SettlementsApi(this._pb, this._resync);
 
   final PocketBase _pb;
-  final SplitcoreCalc _calc;
-  final LocalStore _store;
+
+  // Was a bespoke recompute-from-log into an in-memory snapshot. That is
+  // what a pull already does, against the same server-side numbers, so the
+  // second implementation is gone rather than kept in step by hand.
+  final ResyncGroup _resync;
 
   Future<Settlement> createSettlement({
     required String groupId,
@@ -67,48 +73,6 @@ class SettlementsApi {
         .collection('settlements')
         .getFullList(batch: 200, filter: byGroup(_pb, groupId), sort: '-date');
     return [for (final r in records) _settlementFromRecord(r)];
-  }
-
-  Future<void> _resync(String groupId) async {
-    final expenseRecords = await _pb
-        .collection('expenses')
-        .getFullList(batch: 200, filter: byGroup(_pb, groupId));
-
-    final expenses = <ExpenseInput>[];
-    for (final expense in expenseRecords) {
-      final splitRecords = await _pb
-          .collection('split_entries')
-          .getFullList(batch: 200, filter: byExpense(_pb, expense.id));
-      expenses.add(
-        ExpenseInput(
-          payerId: expense.getStringValue('payer'),
-          amountCents: expense.getIntValue('amount_cents'),
-          splits: [
-            for (final s in splitRecords)
-              Split(
-                memberId: s.getStringValue('member'),
-                amountCents: s.getIntValue('amount_cents'),
-              ),
-          ],
-        ),
-      );
-    }
-
-    final settlementRecords = await _pb
-        .collection('settlements')
-        .getFullList(batch: 200, filter: byGroup(_pb, groupId));
-    final settlements = [
-      for (final s in settlementRecords)
-        SettlementInput(
-          fromMemberId: s.getStringValue('from_member'),
-          toMemberId: s.getStringValue('to_member'),
-          amountCents: s.getIntValue('amount_cents'),
-        ),
-    ];
-
-    final balances = await _calc.computeBalances(expenses: expenses, settlements: settlements);
-    final group = await _pb.collection('groups').getOne(groupId);
-    _store.put(groupId, GroupSnapshot(version: group.getIntValue('version'), balances: balances));
   }
 
   Settlement _settlementFromRecord(RecordModel record) => Settlement(

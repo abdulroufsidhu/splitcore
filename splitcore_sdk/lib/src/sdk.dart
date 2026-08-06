@@ -5,15 +5,22 @@ import 'package:http/http.dart' as http;
 import 'package:pocketbase/pocketbase.dart';
 
 import 'calc_api.dart';
+import 'local/database.dart';
 import 'models.dart';
 import 'remote/auth_api.dart';
 import 'remote/balances_api.dart';
 import 'remote/expenses_api.dart';
 import 'remote/export_api.dart';
 import 'remote/groups_api.dart';
-import 'remote/local_store.dart';
 import 'remote/settlements_api.dart';
+import 'remote/staleness_api.dart';
 import 'remote/token_store.dart';
+import 'repo/balances_repository.dart';
+import 'repo/expenses_repository.dart';
+import 'repo/groups_repository.dart';
+import 'repo/settlements_repository.dart';
+import 'sync/connectivity.dart';
+import 'sync/sync_engine.dart';
 
 class SplitcoreSdk {
   SplitcoreSdk._(
@@ -23,7 +30,9 @@ class SplitcoreSdk {
     this.settlements,
     this.balances,
     this.export,
+    this.sync,
     this._calc,
+    this._db,
   );
 
   /// Opens the splitcore native library at [libraryPath] and connects to
@@ -35,10 +44,21 @@ class SplitcoreSdk {
   /// restarts; defaults to PocketBase's in-memory store, which forgets
   /// sign-in on every launch. The interface is SDK-owned so the app never
   /// has to import `package:pocketbase` for it.
+  ///
+  /// [databasePath] is where the local mirror lives. Omit it and the
+  /// database is in-memory: reads are still local-first for the life of the
+  /// process, they just do not survive a restart.
+  ///
+  /// [connectivity] is how the SDK learns the network came back, which is
+  /// what triggers a sync. It is injected because every real implementation
+  /// is a Flutter plugin and this package is pure Dart; omit it and the SDK
+  /// assumes a connection, exactly as it behaved before.
   factory SplitcoreSdk.initialize({
     required String pocketbaseUrl,
     required String libraryPath,
+    String? databasePath,
     TokenStore? tokenStore,
+    ConnectivityMonitor? connectivity,
   }) {
     final pb = PocketBase(
       pocketbaseUrl,
@@ -46,30 +66,62 @@ class SplitcoreSdk {
       httpClientFactory: () => _TimeoutClient(http.Client(), const Duration(seconds: 15)),
     );
     final calc = SplitcoreCalc.open(libraryPath);
-    final store = LocalStore();
+    final db = databasePath == null ? SplitcoreDb.inMemory() : SplitcoreDb.openAt(databasePath);
+
     final groupsApi = GroupsApi(pb);
     final expensesApi = ExpensesApi(pb, calc);
-    final settlementsApi = SettlementsApi(pb, calc, store);
+    final balancesApi = BalancesApi(pb);
+    // Late-bound: the API needs the engine to resync a stale group, and the
+    // engine needs the API to list settlements. The cycle is broken by the
+    // callback rather than by a second copy of either.
+    late final SyncEngine sync;
+    final settlementsApi = SettlementsApi(pb, (groupId) => sync.pullGroupIfStale(groupId));
+
+    sync = SyncEngine(
+      db: db,
+      connectivity: connectivity ?? AlwaysOnline(),
+      groups: groupsApi,
+      expenses: expensesApi,
+      settlements: settlementsApi,
+      balances: balancesApi,
+      staleness: (groupId, localVersion) =>
+          checkStaleness(pb, groupId: groupId, localVersion: localVersion),
+    )..start();
+
     return SplitcoreSdk._(
       AuthApi(pb),
-      groupsApi,
-      expensesApi,
-      settlementsApi,
-      BalancesApi(pb),
+      GroupsRepository(db, groupsApi, sync),
+      ExpensesRepository(db, expensesApi, sync),
+      SettlementsRepository(db, settlementsApi, sync),
+      BalancesRepository(db),
       ExportApi(groupsApi, expensesApi, settlementsApi),
+      sync,
       calc,
+      db,
     );
   }
 
   final AuthApi auth;
-  final GroupsApi groups;
-  final ExpensesApi expenses;
-  final SettlementsApi settlements;
-  final BalancesApi balances;
+  final GroupsRepository groups;
+  final ExpensesRepository expenses;
+  final SettlementsRepository settlements;
+  final BalancesRepository balances;
 
   /// Ledger export — see [ExportApi.groupToCsv].
   final ExportApi export;
+
+  /// Sync state and control: `sync.events`, `sync.now()`.
+  final SyncEngine sync;
+
   final SplitcoreCalc _calc;
+  final SplitcoreDb _db;
+
+  /// Stops the sync engine and releases the database handle. The SDK is
+  /// unusable afterwards.
+  Future<void> close() async {
+    await sync.dispose();
+    await _db.close();
+  }
 
   /// Suggests the minimal set of transfers to zero out [balances].
   Future<List<Transfer>> settleUp(List<Balance> balances) => _calc.settleUp(balances);

@@ -4,7 +4,6 @@ import 'package:splitcore_sdk/src/models.dart';
 import 'package:splitcore_sdk/src/remote/auth_api.dart';
 import 'package:splitcore_sdk/src/remote/expenses_api.dart';
 import 'package:splitcore_sdk/src/remote/groups_api.dart';
-import 'package:splitcore_sdk/src/remote/local_store.dart';
 import 'package:splitcore_sdk/src/remote/settlements_api.dart';
 import 'package:test/test.dart';
 
@@ -17,7 +16,7 @@ void main() {
   late GroupsApi groupsApi;
   late ExpensesApi expensesApi;
   late SplitcoreCalc calc;
-  late LocalStore store;
+  late List<String> resyncedGroups;
   late SettlementsApi settlementsApi;
   late Group group;
   late GroupMember payer;
@@ -34,8 +33,8 @@ void main() {
     groupsApi = GroupsApi(pb);
     calc = SplitcoreCalc.open(resolveLinuxLibPath());
     expensesApi = ExpensesApi(pb, calc);
-    store = LocalStore();
-    settlementsApi = SettlementsApi(pb, calc, store);
+    resyncedGroups = [];
+    settlementsApi = SettlementsApi(pb, (groupId) async => resyncedGroups.add(groupId));
 
     final ownerUser = await auth.signUp(
       email: 'settle-owner-${DateTime.now().microsecondsSinceEpoch}@example.com',
@@ -71,7 +70,7 @@ void main() {
       // Date is set server-side on create so history can be sorted by it.
       expect(settlement.date.difference(DateTime.now()).abs() < const Duration(minutes: 1), isTrue);
       // No staleness -> no resync -> local store was never populated.
-      expect(store.snapshotFor(group.id), isNull);
+      expect(resyncedGroups, isEmpty);
     },
   );
 
@@ -97,9 +96,10 @@ void main() {
     expect(settlements.totalItems, 2);
   });
 
-  test('resyncs balances into the local store before creating a settlement when stale', () async {
+  test('resyncs the group before creating a settlement when local state is stale', () async {
     final staleVersion = group.version;
 
+    // Bumps the group's version server-side, leaving staleVersion behind.
     await expensesApi.createExpense(
       groupId: group.id,
       payerMemberId: payer.id,
@@ -107,7 +107,6 @@ void main() {
       date: DateTime.utc(2026, 7, 1),
       split: SplitSpec.equal(totalCents: 1000, memberIds: [payer.id, other.id]),
     );
-    final refreshedGroup = await groupsApi.getGroup(group.id);
 
     final settlement = await settlementsApi.createSettlement(
       groupId: group.id,
@@ -118,13 +117,12 @@ void main() {
     );
 
     expect(settlement.amountCents, 500);
-    final snapshot = store.snapshotFor(group.id);
-    expect(snapshot, isNotNull);
-    expect(snapshot!.version, refreshedGroup.version);
     expect(
-      snapshot.balances.fold<int>(0, (sum, b) => sum + b.netCents),
-      0,
-      reason: 'balances recomputed from the full log must always sum to zero',
+      resyncedGroups,
+      [group.id],
+      reason:
+          'a settlement written against known-stale local state can reimburse an amount the '
+          'ledger no longer says is owed',
     );
   });
 }
