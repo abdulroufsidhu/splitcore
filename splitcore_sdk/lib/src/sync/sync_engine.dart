@@ -111,7 +111,15 @@ class SyncEngine {
       final current = await _currentUpdated(op);
       _db.transaction({'outbox'}, () => dao.requeue(seq, current));
     } else {
-      _db.transaction({'outbox'}, () => dao.deleteFor(op.recordId));
+      // Dropping the local edit is only half the job: the row still holds
+      // it. Reset the group's cursor so the next pull refetches and
+      // overwrites — the staleness check would otherwise report the group
+      // current and skip it, leaving the abandoned edit on screen forever.
+      _db.transaction({'outbox', 'sync_state'}, () {
+        dao.deleteFor(op.recordId);
+        final groupId = ExpenseDao(_db).byId(op.recordId)?.groupId;
+        if (groupId != null) SyncStateDao(_db).markSynced(groupId, -1);
+      });
     }
     await now();
   }
@@ -280,10 +288,26 @@ class SyncEngine {
   /// silently is worse than a rare missed detection.
   Future<void> _guardConflict(OutboxOp op, Future<void> Function() write) async {
     final current = await _currentUpdated(op);
-    if (op.baseUpdated != null && current != null && current != op.baseUpdated) {
+    if (_movedSince(op.baseUpdated, current)) {
       throw _ConflictDetected('the record changed on the server since this edit was made');
     }
     await write();
+  }
+
+  /// Compared as instants, not as strings. PocketBase serialises `updated`
+  /// as `2026-08-06 16:24:50.448Z` while a value that has round-tripped
+  /// through the local database comes back in ISO form with a `T`. String
+  /// equality therefore reports a conflict on every single edit, which
+  /// looks exactly like a working conflict detector until you notice no
+  /// edit ever syncs.
+  bool _movedSince(String? base, String? current) {
+    if (base == null || current == null) return false;
+    final a = DateTime.tryParse(base);
+    final b = DateTime.tryParse(current);
+    // Unparseable on either side: refuse to guess. Overwriting a
+    // co-member's edit is worse than parking one that did not need it.
+    if (a == null || b == null) return base != current;
+    return !a.isAtSameMomentAs(b);
   }
 
   Future<String?> _currentUpdated(OutboxOp op) async {
