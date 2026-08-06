@@ -27,6 +27,7 @@ import '../remote/settlements_api.dart';
 import 'connectivity.dart';
 import 'events.dart';
 import 'outbox_op.dart';
+import 'realtime.dart';
 
 /// Resolves a group's staleness against the server. Injected rather than
 /// imported so the engine holds no PocketBase client of its own.
@@ -42,7 +43,9 @@ class SyncEngine {
     required BalancesApi balances,
     required StalenessCheck staleness,
     Future<void> Function(String groupId)? recomputeBalances,
+    RealtimeSubscriber? realtime,
   }) : _ledger = recomputeBalances,
+       _realtime = realtime,
        _db = db,
        _connectivity = connectivity,
        _groups = groups,
@@ -64,6 +67,11 @@ class SyncEngine {
   /// a pull-only engine never needs it.
   final Future<void> Function(String groupId)? _ledger;
 
+  /// Pushes "something changed" from the server. Optional: without it the
+  /// app still syncs on reconnect, on every write, and on demand — it just
+  /// does not learn about a co-member's change until one of those happens.
+  final RealtimeSubscriber? _realtime;
+
   final _events = StreamController<SyncEvent>.broadcast();
   StreamSubscription<bool>? _connectivitySub;
   Timer? _backoff;
@@ -78,7 +86,12 @@ class SyncEngine {
   /// test can build the engine and drive it by hand.
   void start() {
     _connectivitySub = _connectivity.onStatusChange.listen((online) {
-      if (!online) return;
+      if (!online) {
+        // The socket is already dead; dropping it now stops the client
+        // retrying a connection that cannot succeed.
+        unawaited(_realtime?.stop());
+        return;
+      }
       _cancelBackoff();
       unawaited(now());
     });
@@ -174,6 +187,10 @@ class SyncEngine {
       _consecutiveFailures = 0;
       _cancelBackoff();
       _events.add(SyncCompleted(pulled));
+      // After a successful sync, not at construction: realtime is scoped to
+      // what the session may read, and at construction there may be no
+      // session yet. Idempotent, so calling it every run is free.
+      unawaited(_realtime?.start());
     } catch (e) {
       _events.add(SyncFailed(e));
       _armBackoff();
@@ -244,7 +261,7 @@ class SyncEngine {
           date: DateTime.parse(p['date']! as String),
           amountCents: (p['amountCents']! as num).toInt(),
           splitType: p['splitType']! as String,
-          splits: _splitsOf(p),
+          splits: _splitsOf(op.recordId, p),
         );
 
       case OutboxOps.expenseUpdate:
@@ -256,7 +273,7 @@ class SyncEngine {
             date: DateTime.parse(p['date']! as String),
             amountCents: (p['amountCents']! as num).toInt(),
             splitType: p['splitType']! as String,
-            splits: _splitsOf(p),
+            splits: _splitsOf(op.recordId, p),
           );
         });
 
@@ -335,9 +352,17 @@ class SyncEngine {
     }
   }
 
-  List<Split> _splitsOf(Map<String, Object?> payload) => [
+  /// Rebuilds the entries with the ids they were minted with locally, so
+  /// the server's rows carry the same ids the local database already
+  /// references.
+  List<SplitEntry> _splitsOf(String expenseId, Map<String, Object?> payload) => [
     for (final s in (payload['splits']! as List).cast<Map<String, Object?>>())
-      Split(memberId: s['memberId']! as String, amountCents: (s['amountCents']! as num).toInt()),
+      SplitEntry(
+        id: s['id']! as String,
+        expenseId: expenseId,
+        memberId: s['memberId']! as String,
+        amountCents: (s['amountCents']! as num).toInt(),
+      ),
   ];
 
   /// Recomputes which rows the UI should grey. Done once after a drain
@@ -434,6 +459,7 @@ class SyncEngine {
 
   Future<void> dispose() async {
     _cancelBackoff();
+    await _realtime?.stop();
     await _connectivitySub?.cancel();
     await _events.close();
   }

@@ -8,7 +8,6 @@
 // (SplitSpec.exact/.percent/.shares) — this file only had to stop hardcoding
 // SplitSpec.equal for every tab.
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart' hide Split;
 import 'package:image_picker/image_picker.dart';
@@ -71,7 +70,7 @@ class AddExpenseScreenState extends State<AddExpenseScreen> {
   final Map<String, TextEditingController> _percentControllers = {};
   final Map<String, TextEditingController> _shareControllers = {};
   List<Split> _preview = [];
-  Uint8List? _receiptBytes;
+  String? _receiptPath;
   bool _saving = false;
   String? _error;
   Timer? _previewDebounce;
@@ -255,8 +254,9 @@ class AddExpenseScreenState extends State<AddExpenseScreen> {
     try {
       final picked = await ImagePicker().pickImage(source: source);
       if (picked == null) return;
-      final bytes = await picked.readAsBytes();
-      setState(() => _receiptBytes = bytes);
+      // The path, not the bytes: the SDK queues receipts by path so the
+      // outbox stays a table of small rows rather than a blob store.
+      setState(() => _receiptPath = picked.path);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -296,10 +296,13 @@ class AddExpenseScreenState extends State<AddExpenseScreen> {
               date: existing.date,
               split: _buildSpec(),
             );
-      if (_receiptBytes != null) {
+      final receiptPath = _receiptPath;
+      if (receiptPath != null) {
         final entries = await widget.sdk!.expenses.listSplitEntries(expense.id);
         if (entries.isNotEmpty) {
-          await widget.sdk!.expenses.attachReceipt(entries.first.id, _receiptBytes!);
+          // Queued, not uploaded: saving must not fail because there is no
+          // connection, and the expense is already safe locally.
+          await widget.sdk!.expenses.attachReceiptFile(entries.first.id, receiptPath);
         }
       }
       if (mounted) Navigator.of(context).pop();
@@ -466,7 +469,7 @@ class AddExpenseScreenState extends State<AddExpenseScreen> {
                         Icon(Icons.camera_alt_outlined, size: 18, color: slice.ink),
                         const SizedBox(width: 8),
                         Text(
-                          _receiptBytes == null ? 'Attach receipt' : 'Receipt attached · retake',
+                          _receiptPath == null ? 'Attach receipt' : 'Receipt attached · retake',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 13.5,

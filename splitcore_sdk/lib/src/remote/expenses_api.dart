@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:pocketbase/pocketbase.dart';
 
 import '../calc_api.dart';
+import '../local/ids.dart';
 import '../models.dart';
 import 'filters.dart';
 import 'receipts.dart' as receipts;
@@ -53,6 +54,10 @@ class ExpensesApi {
             .collection('split_entries')
             .create(
               body: {
+                // Client-minted, like the expense's own id: every local
+                // reference to this entry — a queued receipt upload, most of
+                // all — has to survive the round trip.
+                'id': newLocalId(),
                 'expense': expenseRecord.id,
                 'member': s.memberId,
                 'amount_cents': s.amountCents,
@@ -85,7 +90,7 @@ class ExpensesApi {
     required DateTime date,
     required int amountCents,
     required String splitType,
-    required List<Split> splits,
+    required List<SplitEntry> splits,
   }) async {
     final expenseRecord = await _pb
         .collection('expenses')
@@ -107,6 +112,11 @@ class ExpensesApi {
             .collection('split_entries')
             .create(
               body: {
+                // Client-minted, like the expense's own id. Without it the
+                // server assigns its own and every local reference to this
+                // entry — a queued receipt upload, most of all — points at a
+                // row that does not exist.
+                'id': s.id,
                 'expense': expenseRecord.id,
                 'member': s.memberId,
                 'amount_cents': s.amountCents,
@@ -133,7 +143,7 @@ class ExpensesApi {
     required DateTime date,
     required int amountCents,
     required String splitType,
-    required List<Split> splits,
+    required List<SplitEntry> splits,
   }) async {
     final existing = await _pb
         .collection('split_entries')
@@ -159,7 +169,12 @@ class ExpensesApi {
       await _pb
           .collection('split_entries')
           .create(
-            body: {'expense': expenseId, 'member': s.memberId, 'amount_cents': s.amountCents},
+            body: {
+              'id': s.id,
+              'expense': expenseId,
+              'member': s.memberId,
+              'amount_cents': s.amountCents,
+            },
           );
     }
 
@@ -221,7 +236,12 @@ class ExpensesApi {
       await _pb
           .collection('split_entries')
           .create(
-            body: {'expense': expenseId, 'member': s.memberId, 'amount_cents': s.amountCents},
+            body: {
+              'id': newLocalId(),
+              'expense': expenseId,
+              'member': s.memberId,
+              'amount_cents': s.amountCents,
+            },
           );
     }
 

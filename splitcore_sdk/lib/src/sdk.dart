@@ -21,6 +21,7 @@ import 'repo/groups_repository.dart';
 import 'repo/local_ledger.dart';
 import 'repo/settlements_repository.dart';
 import 'sync/connectivity.dart';
+import 'sync/realtime.dart';
 import 'sync/sync_engine.dart';
 
 class SplitcoreSdk {
@@ -78,6 +79,7 @@ class SplitcoreSdk {
     // callback rather than by a second copy of either.
     late final SyncEngine sync;
     final settlementsApi = SettlementsApi(pb, (groupId) => sync.pullGroupIfStale(groupId));
+    final realtime = RealtimeSubscriber(pb, () => sync.wake());
 
     sync = SyncEngine(
       db: db,
@@ -89,6 +91,7 @@ class SplitcoreSdk {
       staleness: (groupId, localVersion) =>
           checkStaleness(pb, groupId: groupId, localVersion: localVersion),
       recomputeBalances: ledger.recompute,
+      realtime: realtime,
     )..start();
 
     return SplitcoreSdk._(
