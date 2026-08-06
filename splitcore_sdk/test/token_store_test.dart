@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 import 'package:test/test.dart';
 
@@ -65,5 +67,39 @@ void main() {
     );
 
     expect(relaunched.auth.currentUser?.email, email);
+  });
+
+  group('FileTokenStore', () {
+    late Directory dir;
+
+    setUp(() => dir = Directory.systemTemp.createTempSync('splitcore_tokens'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('reads back what it wrote, across instances', () async {
+      final path = '${dir.path}/auth.json';
+      await FileTokenStore.at(path).write('{"token":"abc"}');
+
+      expect(FileTokenStore.at(path).read(), '{"token":"abc"}');
+    });
+
+    test('a first launch reads null rather than throwing', () {
+      expect(FileTokenStore.at('${dir.path}/missing.json').read(), isNull);
+    });
+
+    test('an unreadable path reads null instead of blocking startup', () {
+      // A directory where a file was expected: readAsStringSync throws. The
+      // user can sign in again, but they cannot get past a launch crash.
+      final path = '${dir.path}/not-a-file';
+      Directory(path).createSync();
+
+      expect(FileTokenStore.at(path).read(), isNull);
+    });
+
+    test('writing creates missing parent directories', () async {
+      final path = '${dir.path}/nested/deeper/auth.json';
+      await FileTokenStore.at(path).write('seed');
+
+      expect(FileTokenStore.at(path).read(), 'seed');
+    });
   });
 }

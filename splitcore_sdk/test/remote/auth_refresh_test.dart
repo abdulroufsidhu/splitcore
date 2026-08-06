@@ -88,7 +88,7 @@ void main() {
     expect(await auth.tryRefresh(), isNull);
   });
 
-  test('a refresh against an unreachable server clears the session and returns null', () async {
+  test('a refresh against an unreachable server keeps the session', () async {
     // Port 1 refuses instantly — the offline path without a real timeout wait.
     final pb = PocketBase('http://127.0.0.1:1');
     final auth = AuthApi(pb);
@@ -96,13 +96,40 @@ void main() {
     // Seed a syntactically valid session so tryRefresh gets past its null check.
     final live = PocketBase(server.baseUrl);
     final liveAuth = AuthApi(live);
-    await liveAuth.signUp(
+    final user = await liveAuth.signUp(
       email: 'offline-${DateTime.now().microsecondsSinceEpoch}@example.com',
       password: 'password123',
     );
     pb.authStore.save(live.authStore.token, live.authStore.record);
 
+    expect(await auth.tryRefresh(), isNull, reason: 'the refresh could not confirm the session');
+    expect(
+      auth.currentUser?.id,
+      user.id,
+      reason:
+          'a network failure signed the user out. It is indistinguishable from an expired '
+          'token at this call site, and treating it as one logs the user out every time the '
+          'app launches offline — precisely when the cached session matters most',
+    );
+    expect(auth.isSignedIn, isTrue);
+  });
+
+  test('a refresh rejected by the server does clear the session', () async {
+    // The other half of the same rule: a 401 is the server saying the token
+    // is dead, and keeping it would strand the user on a session that can
+    // never work again.
+    final pb = PocketBase(server.baseUrl);
+    final auth = AuthApi(pb);
+    await auth.signUp(
+      email: 'rejected-${DateTime.now().microsecondsSinceEpoch}@example.com',
+      password: 'password123',
+    );
+
+    // A well-formed but bogus token: the server rejects it with a 401.
+    pb.authStore.save('not.a.real.token', pb.authStore.record);
+
     expect(await auth.tryRefresh(), isNull);
     expect(auth.currentUser, isNull);
+    expect(auth.isSignedIn, isFalse);
   });
 }

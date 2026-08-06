@@ -30,5 +30,6 @@ export 'src/remote/expenses_api.dart' show ExpensesApi;
 export 'src/remote/export_api.dart' show ExportApi;
 export 'src/remote/groups_api.dart' show GroupsApi;
 export 'src/remote/settlements_api.dart' show SettlementsApi;
-export 'src/remote/token_store.dart' show TokenStore;
+export 'src/remote/token_store.dart' show FileTokenStore, TokenStore;
 export 'src/sdk.dart' show SplitcoreSdk;
+export 'src/sync/connectivity.dart' show AlwaysOnline, ConnectivityMonitor, FakeConnectivityMonitor;

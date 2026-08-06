@@ -143,11 +143,22 @@ class AuthApi {
     try {
       final auth = await _pb.collection('users').authRefresh();
       return _userFromRecord(auth.record);
-    } catch (_) {
-      _pb.authStore.clear();
+    } on ClientException catch (e) {
+      // Only an outright rejection means the session is dead. A network
+      // failure is indistinguishable from an expired token at this call
+      // site, and treating it as one signed the user out on every launch
+      // without a connection — precisely when the cached session matters
+      // most. Keep it; the next successful refresh settles the question.
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        _pb.authStore.clear();
+      }
       return null;
     }
   }
+
+  /// Whether a session is stored. Answerable offline, without a request —
+  /// the stored token is the best available evidence of who is signed in.
+  bool get isSignedIn => _pb.authStore.isValid;
 
   AppUser _userFromRecord(RecordModel record) => AppUser(
     id: record.id,
