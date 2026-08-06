@@ -24,6 +24,12 @@ class ExpensesRepository {
   Stream<List<SplitEntry>> watchSplitEntries(String expenseId) =>
       _db.watch({'split_entries'}, () => ExpenseDao(_db).listSplitEntries(expenseId));
 
+  /// The current expense list, for callers that want a value rather than a
+  /// subscription — the activity feed and the export path. Unpaged: these
+  /// are local rows, so there is no request to economise on.
+  Future<List<Expense>> listExpenses(String groupId, {String query = ''}) async =>
+      ExpenseDao(_db).listExpenses(groupId, query: query);
+
   /// One expense's split entries, for callers that want a value rather than
   /// a subscription.
   Future<List<SplitEntry>> listSplitEntries(String expenseId) async =>

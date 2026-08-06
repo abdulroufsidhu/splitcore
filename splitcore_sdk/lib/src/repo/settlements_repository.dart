@@ -17,6 +17,11 @@ class SettlementsRepository {
   Stream<List<Settlement>> watch(String groupId) =>
       _db.watch({'settlements'}, () => SettlementDao(_db).listSettlements(groupId));
 
+  /// The current settlement list, for callers that want a value rather than
+  /// a subscription.
+  Future<List<Settlement>> listSettlements(String groupId) async =>
+      SettlementDao(_db).listSettlements(groupId);
+
   /// Records a reimbursement. The local sync cursor is what the server's
   /// staleness check is measured against, so a settlement is never written
   /// on top of local state known to be behind: [SettlementsApi] pulls the

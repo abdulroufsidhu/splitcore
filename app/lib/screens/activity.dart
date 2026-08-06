@@ -43,16 +43,15 @@ class _ActivityScreenState extends State<ActivityScreen> {
     super.dispose();
   }
 
-  // ponytail: N+1 over groups (one round trip per group); fine at personal
-  // scale, add a server-side aggregate endpoint if group counts grow.
+  // Every read below is a local SQLite query now, so the per-group loop is
+  // no longer N+1 round trips — it is N indexed reads against a file.
   Future<List<ActivityItem>> _load() async {
     final groups = await widget.sdk!.groups.listMyGroups();
     final items = <ActivityItem>[];
     for (final group in groups) {
       final members = await widget.sdk!.groups.listMembers(group.id);
-      // The global feed genuinely wants every row per group, not a page.
-      final expenses = await widget.sdk!.expenses.listAllExpenses(group.id);
-      final settlements = await widget.sdk!.settlements.listAllSettlements(group.id);
+      final expenses = await widget.sdk!.expenses.listExpenses(group.id);
+      final settlements = await widget.sdk!.settlements.listSettlements(group.id);
       items.addAll(
         buildActivity(
           group: group,

@@ -21,11 +21,8 @@ Expense _expense(String id, String description) => Expense(
   date: DateTime.utc(2026, 7, 1),
 );
 
-Page<Expense> _page(List<Expense> items) =>
-    Page<Expense>(items: items, page: 1, perPage: 50, totalItems: items.length, totalPages: 1);
-
 Widget _host({
-  required Future<Page<Expense>> Function(String query) search,
+  required Future<List<Expense>> Function(String query) search,
   List<Expense> initial = const [],
 }) => MaterialApp(
   theme: sliceLightTheme(),
@@ -36,8 +33,8 @@ Widget _host({
     loadOverride: () async => GroupDetailData(
       members: _members,
       balances: const [],
-      expenses: _page(initial),
-      settlements: const Page<Settlement>.empty(),
+      expenses: initial,
+      settlements: const <Settlement>[],
     ),
     searchOverride: search,
   ),
@@ -51,7 +48,7 @@ void main() {
       _host(
         search: (query) async {
           queries.add(query);
-          return _page(const []);
+          return const [];
         },
       ),
     );
@@ -74,7 +71,7 @@ void main() {
     await tester.pumpWidget(
       _host(
         initial: [_expense('e1', 'Groceries')],
-        search: (query) async => _page([_expense('e2', 'Dinner')]),
+        search: (query) async => [_expense('e2', 'Dinner')],
       ),
     );
     await tester.pumpAndSettle();
@@ -97,7 +94,7 @@ void main() {
         initial: [_expense('e1', 'Groceries')],
         search: (query) async {
           searches++;
-          return _page([_expense('e2', 'Dinner')]);
+          return [_expense('e2', 'Dinner')];
         },
       ),
     );
@@ -118,7 +115,7 @@ void main() {
 
   testWidgets('a query with no matches says so instead of looking broken', (tester) async {
     await tester.pumpWidget(
-      _host(initial: [_expense('e1', 'Groceries')], search: (query) async => _page(const [])),
+      _host(initial: [_expense('e1', 'Groceries')], search: (query) async => const []),
     );
     await tester.pumpAndSettle();
 

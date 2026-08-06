@@ -39,10 +39,11 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
 
   Future<void> _record(int index, Transfer t) async {
     try {
-      final group = await widget.sdk.groups.getGroup(widget.group.id);
+      // The SDK reads the local sync cursor itself and pulls the group
+      // first if the server has moved on, so a settlement is never written
+      // against balances known to be stale.
       await widget.sdk.settlements.createSettlement(
         groupId: widget.group.id,
-        localVersion: group.version,
         fromMemberId: t.fromMemberId,
         toMemberId: t.toMemberId,
         amountCents: t.amountCents,

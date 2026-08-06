@@ -20,9 +20,26 @@ class GroupsRepository {
   Stream<List<GroupMember>> watchMembers(String groupId) =>
       _db.watch({'members'}, () => GroupDao(_db).listMembers(groupId));
 
+  Stream<Group?> watchGroup(String groupId) => _db.watch({'groups'}, () => _groupOrNull(groupId));
+
   /// The current member list, for callers that want one value rather than a
   /// subscription — the export path, and tests.
   Future<List<GroupMember>> listMembers(String groupId) async => GroupDao(_db).listMembers(groupId);
+
+  /// The groups the signed-in user belongs to, from the local mirror.
+  Future<List<Group>> listMyGroups() async => GroupDao(_db).listGroups();
+
+  /// Null when the group is not in the local mirror — either it was never
+  /// synced or the user was removed from it. Callers render "not found"
+  /// rather than hanging on a request that cannot succeed offline.
+  Future<Group?> getGroup(String groupId) async => _groupOrNull(groupId);
+
+  Group? _groupOrNull(String groupId) {
+    for (final g in GroupDao(_db).listGroups()) {
+      if (g.id == groupId) return g;
+    }
+    return null;
+  }
 
   Future<Group> createGroup({
     required String name,

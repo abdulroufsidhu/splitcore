@@ -1,10 +1,13 @@
 // 1b — Group detail: member balances + expense list. Add expense / Settle
 // up live as the two bottom actions, matching the design's card.
-// Flutter's navigator also exports a `Page`; the SDK's paging type is the
-// one this screen deals in.
+//
+// Every read here comes from the SDK's local database, so the screen
+// renders offline and re-renders when a sync writes. That also retired the
+// paging: local rows have no request to economise on, and "show older
+// expenses" was only ever working around one.
 import 'dart:async';
 
-import 'package:flutter/material.dart' hide Page;
+import 'package:flutter/material.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import '../activity.dart';
@@ -32,8 +35,8 @@ class GroupDetailData {
 
   final List<GroupMember> members;
   final List<Balance> balances;
-  final Page<Expense> expenses;
-  final Page<Settlement> settlements;
+  final List<Expense> expenses;
+  final List<Settlement> settlements;
 
   int netFor(String memberId) {
     final matches = balances.where((b) => b.memberId == memberId);
@@ -48,7 +51,6 @@ class GroupDetailScreen extends StatefulWidget {
     required this.me,
     required this.group,
     this.loadOverride,
-    this.loadMoreOverride,
     this.searchOverride,
   });
 
@@ -61,13 +63,9 @@ class GroupDetailScreen extends StatefulWidget {
   @visibleForTesting
   final Future<GroupDetailData> Function()? loadOverride;
 
-  /// Test seam for the "show older expenses" path.
-  @visibleForTesting
-  final Future<Page<Expense>> Function(int page)? loadMoreOverride;
-
   /// Test seam for search.
   @visibleForTesting
-  final Future<Page<Expense>> Function(String query)? searchOverride;
+  final Future<List<Expense>> Function(String query)? searchOverride;
 
   @override
   State<GroupDetailScreen> createState() => GroupDetailScreenState();
@@ -76,14 +74,8 @@ class GroupDetailScreen extends StatefulWidget {
 class GroupDetailScreenState extends State<GroupDetailScreen> {
   late final Loadable<GroupDetailData> _data = Loadable(widget.loadOverride ?? _fetch);
 
-  /// Pages appended past the first. Kept out of the Loadable's value so a
-  /// refresh resets paging to page 1 — which is what "pull to refresh"
-  /// should mean, rather than stacking a stale page under fresh data.
-  final List<Expense> _extraExpenses = [];
-  int _loadedPage = 1;
-  bool _loadingMore = false;
-
   final TextEditingController _searchController = TextEditingController();
+  StreamSubscription<List<Expense>>? _expensesSub;
   Timer? _searchDebounce;
 
   /// Non-null while a search is showing; null means "show the normal
@@ -94,19 +86,24 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
   void initState() {
     super.initState();
     _data.load();
+    // A sync (or another screen's write) commits to the local database;
+    // this is how an open group screen finds out, instead of showing
+    // yesterday's expenses until the user navigates away and back.
+    _expensesSub = widget.sdk?.expenses.watch(widget.group.id).skip(1).listen((_) => _refresh());
   }
 
   @override
   void dispose() {
+    unawaited(_expensesSub?.cancel());
     _searchDebounce?.cancel();
     _searchController.dispose();
     _data.dispose();
     super.dispose();
   }
 
-  /// Debounced because the search hits the server: firing per keystroke
-  /// issues one request per character and lets a slow early response
-  /// overwrite a later one.
+  /// Still debounced, though the query is now a local SQLite scan rather
+  /// than a request: re-querying and rebuilding the list on every keystroke
+  /// is wasted work on a long history.
   void _onSearchChanged(String query) {
     _searchDebounce?.cancel();
     if (query.trim().isEmpty) {
@@ -116,10 +113,10 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
       final search =
           widget.searchOverride ??
-          (String q) => widget.sdk!.expenses.searchExpenses(widget.group.id, q);
+          (String q) => widget.sdk!.expenses.listExpenses(widget.group.id, query: q);
       try {
         final results = await search(query);
-        if (mounted) setState(() => _searchResults = results.items);
+        if (mounted) setState(() => _searchResults = results);
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Couldn't search: $e")));
@@ -130,7 +127,7 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
   Future<GroupDetailData> _fetch() async {
     final sdk = widget.sdk!;
     final members = await sdk.groups.listMembers(widget.group.id);
-    final balances = await sdk.balances.getBalances(widget.group.id);
+    final balances = await sdk.balances.get(widget.group.id);
     final expenses = await sdk.expenses.listExpenses(widget.group.id);
     final settlements = await sdk.settlements.listSettlements(widget.group.id);
     return GroupDetailData(
@@ -141,48 +138,18 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     );
   }
 
-  /// Reloads from page 1, discarding any appended pages.
-  Future<void> refresh() {
-    _extraExpenses.clear();
-    _loadedPage = 1;
-    return _data.load();
+  Future<void> refresh() => _data.load();
+
+  /// Pull-to-refresh asks the sync engine for a pull; the resulting local
+  /// write arrives back through _expensesSub.
+  Future<void> refreshFromServer() async {
+    await widget.sdk?.sync.now();
+    await refresh();
   }
 
   void _refresh() {
     if (mounted) refresh();
   }
-
-  Future<void> _loadMore(Page<Expense> current) async {
-    if (_loadingMore) return;
-    setState(() => _loadingMore = true);
-    try {
-      final fetch =
-          widget.loadMoreOverride ??
-          (int page) => widget.sdk!.expenses.listExpenses(
-            widget.group.id,
-            page: page,
-            perPage: current.perPage,
-          );
-      final next = await fetch(_loadedPage + 1);
-      if (!mounted) return;
-      setState(() {
-        _extraExpenses.addAll(next.items);
-        _loadedPage = next.page;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Couldn't load older expenses: $e")));
-    } finally {
-      if (mounted) setState(() => _loadingMore = false);
-    }
-  }
-
-  /// True while the first page plus anything appended still does not cover
-  /// every expense the server reported.
-  bool _hasMoreExpenses(Page<Expense> page) =>
-      page.items.length + _extraExpenses.length < page.totalItems;
 
   Future<void> _openReceiptIfAny(BuildContext context, Expense expense) async {
     final entries = await widget.sdk!.expenses.listSplitEntries(expense.id);
@@ -340,8 +307,8 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
               me: widget.me,
               // While searching, the list shows matches only — settlements
               // are not searchable, so they drop out with them.
-              expenses: searching ? _searchResults! : [...data.expenses.items, ..._extraExpenses],
-              settlements: searching ? const [] : data.settlements.items,
+              expenses: searching ? _searchResults! : data.expenses,
+              settlements: searching ? const [] : data.settlements,
             );
             return RefreshIndicator(
               onRefresh: refresh,
@@ -448,22 +415,8 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                                 )
                               : ListView.builder(
                                   padding: const EdgeInsets.only(bottom: 100),
-                                  // One extra row for the load-more
-                                  // affordance when older pages exist.
-                                  itemCount:
-                                      activity.length +
-                                      (!searching && _hasMoreExpenses(data.expenses) ? 1 : 0),
+                                  itemCount: activity.length,
                                   itemBuilder: (context, i) {
-                                    if (i == activity.length) {
-                                      return _LoadMoreRow(
-                                        remaining:
-                                            data.expenses.totalItems -
-                                            data.expenses.items.length -
-                                            _extraExpenses.length,
-                                        loading: _loadingMore,
-                                        onPressed: () => _loadMore(data.expenses),
-                                      );
-                                    }
                                     final item = activity[i];
                                     final isSettlement = item.kind == ActivityKind.settlement;
                                     return ListTile(
@@ -630,35 +583,5 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
     }
-  }
-}
-
-/// The "show older expenses" row at the foot of the activity list.
-class _LoadMoreRow extends StatelessWidget {
-  const _LoadMoreRow({required this.remaining, required this.loading, required this.onPressed});
-
-  final int remaining;
-  final bool loading;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Center(
-        child: loading
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : TextButton(
-                onPressed: onPressed,
-                child: Text(
-                  remaining == 1 ? 'Show 1 older expense' : 'Show $remaining older expenses',
-                ),
-              ),
-      ),
-    );
   }
 }

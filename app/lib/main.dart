@@ -3,11 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import 'config.dart';
-import 'offline_cache.dart';
+import 'connectivity.dart';
 import 'screens/home.dart';
 import 'screens/login.dart';
 import 'theme.dart';
@@ -90,22 +91,26 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
     currentUser.value = refreshed;
   }
 
-  /// Last-known-good group data for the offline banner. Built alongside
-  /// the SDK because both need the same resolved prefs instance.
-  OfflineCache? _cache;
-
   Future<SplitcoreSdk> _initSdk() async {
     // Resolve prefs first: TokenStore.read is synchronous because the SDK
     // needs the stored session while constructing its client.
     final prefs = await SharedPreferences.getInstance();
-    _cache = OfflineCache(prefs);
+    final dir = await getApplicationSupportDirectory();
     final sdk = SplitcoreSdk.initialize(
       pocketbaseUrl: defaultBackendUrl(),
       libraryPath: _libraryPath(),
+      // The local mirror every screen reads from. Persisted, so relaunching
+      // without a connection still shows the user their groups.
+      databasePath: '${dir.path}/splitcore.db',
       tokenStore: _PrefsTokenStore(prefs),
+      connectivity: ConnectivityPlusMonitor(),
     );
     currentUser.value = sdk.auth.currentUser;
     unawaited(_refreshSession());
+    // Nothing is on screen until the first pull, so kick one off rather than
+    // waiting for a connectivity transition that may never come — the app is
+    // usually launched with the network already up.
+    unawaited(sdk.sync.now());
     return sdk;
   }
 
@@ -136,7 +141,6 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
               return HomeScreen(
                 sdk: sdk,
                 me: user,
-                cache: _cache,
                 onSignedOut: () {
                   sdk.auth.signOut();
                   currentUser.value = null;

@@ -1,5 +1,6 @@
 // 1a — Home: groups & balances. The groups list *is* the app (no tab bar);
 // account/sign-out lives behind the header avatar.
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -9,8 +10,6 @@ import 'package:splitcore_sdk/splitcore_sdk.dart';
 import '../display_name.dart';
 import '../money.dart';
 import '../loadable.dart';
-import '../offline_cache.dart';
-import '../relative_time.dart';
 import '../theme.dart';
 import '../widgets/async_section.dart';
 import '../widgets/avatar.dart';
@@ -36,17 +35,6 @@ class GroupRow {
     this.directAvatarUrl,
   );
 
-  /// A row rebuilt from the offline cache. myMemberId is empty because
-  /// nothing cached can be tapped through to a live action.
-  factory GroupRow.fromCache(GroupSummary summary) => GroupRow(
-    Group(id: summary.id, name: summary.name, currency: summary.currency, version: 0, ownerId: ''),
-    '',
-    summary.myNetCents,
-    summary.memberCount,
-    '',
-    '',
-  );
-
   final Group group;
   final String myMemberId;
   final int myNetCents;
@@ -65,7 +53,6 @@ class HomeScreen extends StatefulWidget {
     required this.me,
     required this.onSignedOut,
     required this.onProfileUpdated,
-    this.cache,
     this.loadOverride,
   });
 
@@ -78,10 +65,6 @@ class HomeScreen extends StatefulWidget {
   /// the AppUser it hands down (widget.me here doesn't rebuild on its own).
   final ValueChanged<AppUser> onProfileUpdated;
 
-  /// Last-known-good group data, shown when a load fails. Null disables
-  /// the offline fallback entirely (widget tests, mostly).
-  final OfflineCache? cache;
-
   /// Test seam: supplies the group rows without an SDK or a server.
   @visibleForTesting
   final Future<List<GroupRow>> Function()? loadOverride;
@@ -93,19 +76,22 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late final Loadable<List<GroupRow>> _rows = Loadable(widget.loadOverride ?? _fetchRows);
 
-  /// True while the list on screen came from the cache rather than the
-  /// server. Drives the banner — the user must never mistake stale data
-  /// for live data.
-  bool _showingCached = false;
+  StreamSubscription<List<Group>>? _groupsSub;
 
   @override
   void initState() {
     super.initState();
     _rows.load();
+    // Every write and every sync commits to the local database, and this is
+    // how the list finds out. Without it a group added on another device —
+    // or by the pull that runs moments after launch — sits invisible until
+    // the user pulls to refresh.
+    _groupsSub = widget.sdk?.groups.watchGroups().skip(1).listen((_) => _load());
   }
 
   @override
   void dispose() {
+    unawaited(_groupsSub?.cancel());
     _rows.dispose();
     super.dispose();
   }
@@ -118,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final members = await widget.sdk!.groups.listMembers(group.id);
       final me = memberFor(members, widget.me.id);
       if (me == null) return null;
-      final balances = await widget.sdk!.balances.getBalances(group.id);
+      final balances = await widget.sdk!.balances.get(group.id);
       final myBalances = balances.where((b) => b.memberId == me.id);
       final myNetCents = myBalances.isEmpty ? 0 : myBalances.first.netCents;
       final directName = group.isDirect ? directPersonName(members, widget.me, group.name) : '';
@@ -131,38 +117,26 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Reads the local database only — no request, so this succeeds offline
+  /// and on the first frame. Freshness is the sync engine's job, not this
+  /// screen's.
   Future<List<GroupRow>> _fetchRows() async {
-    try {
-      final groups = await widget.sdk!.groups.listMyGroups();
-      final loaded = await Future.wait(groups.map(_loadRow));
-      final rows = [
-        for (final r in loaded)
-          if (r != null) r,
-      ];
-      await widget.cache?.putGroups([
-        for (final r in rows)
-          GroupSummary(
-            id: r.group.id,
-            name: r.group.name,
-            currency: r.group.currency,
-            myNetCents: r.myNetCents,
-            memberCount: r.memberCount,
-          ),
-      ]);
-      await widget.cache?.markUpdated();
-      _showingCached = false;
-      return rows;
-    } catch (_) {
-      final cached = widget.cache?.groups();
-      // Nothing to fall back to: the error is the honest answer, and
-      // AsyncSection turns it into a retry.
-      if (cached == null) rethrow;
-      _showingCached = true;
-      return [for (final g in cached) GroupRow.fromCache(g)];
-    }
+    final groups = await widget.sdk!.groups.listMyGroups();
+    final loaded = await Future.wait(groups.map(_loadRow));
+    return [
+      for (final r in loaded)
+        if (r != null) r,
+    ];
   }
 
   Future<void> _load() => _rows.load();
+
+  /// Pull-to-refresh asks the sync engine for a pull; the resulting local
+  /// write comes back through _groupsSub.
+  Future<void> _refreshFromServer() async {
+    await widget.sdk?.sync.now();
+    await _load();
+  }
 
   void _refresh() {
     if (mounted) _load();
@@ -192,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Column(
                     children: [
-                      if (_showingCached) _OfflineBanner(cache: widget.cache, onRetry: _load),
+                      if (widget.sdk != null) _SyncBanner(sync: widget.sdk!.sync),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
                         child: Row(
@@ -271,7 +245,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       Expanded(
                         child: RefreshIndicator(
-                          onRefresh: _load,
+                          onRefresh: _refreshFromServer,
                           child: rows.isEmpty
                               ? ListView(
                                   physics: const AlwaysScrollableScrollPhysics(),
@@ -615,19 +589,42 @@ class _GroupTile extends StatelessWidget {
   }
 }
 
-/// Shown above the group list when the data on screen came from the cache.
-/// Stale numbers must never be mistaken for live ones, so this says both
-/// that the app is offline and how old the figures are.
-class _OfflineBanner extends StatelessWidget {
-  const _OfflineBanner({required this.cache, required this.onRetry});
+/// Shown above the group list while the last sync attempt is failing.
+/// The numbers on screen are local and therefore always renderable; what
+/// the user needs to know is that they may be behind the server.
+class _SyncBanner extends StatefulWidget {
+  const _SyncBanner({required this.sync});
 
-  final OfflineCache? cache;
-  final VoidCallback onRetry;
+  final SyncEngine sync;
+
+  @override
+  State<_SyncBanner> createState() => _SyncBannerState();
+}
+
+class _SyncBannerState extends State<_SyncBanner> {
+  StreamSubscription<SyncEvent>? _sub;
+  bool _failing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.sync.events.listen((event) {
+      final failing = event is SyncFailed;
+      if (failing == _failing || event is SyncStarted) return;
+      setState(() => _failing = failing);
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub?.cancel());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (!_failing) return const SizedBox.shrink();
     final slice = context.slice;
-    final updated = cache?.lastUpdated;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -638,13 +635,11 @@ class _OfflineBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              updated == null
-                  ? "You're offline — showing saved data."
-                  : "You're offline — showing data from ${formatRelative(updated)}.",
+              "You're offline — showing saved data.",
               style: TextStyle(fontSize: 12.5, color: slice.ink),
             ),
           ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
+          TextButton(onPressed: widget.sync.now, child: const Text('Retry')),
         ],
       ),
     );
