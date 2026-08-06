@@ -1,7 +1,7 @@
 # Offline-First Sync and Auth Persistence — Design
 
 **Date:** 2026-08-06
-**Status:** Approved
+**Status:** Implemented (all three phases)
 **Affects:** `splitcore_sdk` (0.1.0 → 0.2.0, breaking), `app/lib/`
 
 ## Problem
@@ -264,6 +264,9 @@ SplitcoreSdk.initialize(
 ## Phasing
 
 Each phase is shippable on its own.
+
+All three phases are built. Implementation notes and the defects each phase
+uncovered are in the plans under `docs/superpowers/plans/`.
 
 1. **Local DB + reactive reads + pull.** Schema, DAOs, change bus,
    `ConnectivityMonitor`, `watch*`, pull-on-connect, the auth fix, and
