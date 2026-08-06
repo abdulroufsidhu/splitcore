@@ -1,7 +1,10 @@
 // The local source of truth. Opening it runs any outstanding migrations,
 // so a caller never sees a half-built schema.
+import 'dart:async';
+
 import 'package:sqlite3/sqlite3.dart' as sqlite;
 
+import 'change_bus.dart';
 import 'schema.dart' as sql;
 
 class SplitcoreDb {
@@ -23,6 +26,12 @@ class SplitcoreDb {
 
   /// The underlying handle. DAOs use this; nothing outside `local/` should.
   final sqlite.Database raw;
+
+  final _bus = ChangeBus();
+  bool _inTransaction = false;
+
+  /// The table names touched by each committed transaction.
+  Stream<Set<String>> get changes => _bus.changes;
 
   int get userVersion => raw.select('PRAGMA user_version').first['user_version'] as int;
 
@@ -50,5 +59,62 @@ class SplitcoreDb {
     }
   }
 
-  void close() => raw.dispose();
+  /// Runs [body] in a transaction and, on commit, announces [tables].
+  ///
+  /// SQLite has no nested transactions, and the SDK has no case that needs
+  /// them: a write is one call. Nesting throws rather than silently
+  /// flattening into the outer transaction, where an inner rollback would
+  /// discard the outer caller's work without telling them.
+  T transaction<T>(Set<String> tables, T Function() body) {
+    if (_inTransaction) {
+      throw StateError('SplitcoreDb.transaction cannot be nested');
+    }
+    _inTransaction = true;
+    raw.execute('BEGIN');
+    try {
+      final result = body();
+      raw.execute('COMMIT');
+      _bus.emit(tables);
+      return result;
+    } catch (_) {
+      raw.execute('ROLLBACK');
+      rethrow;
+    } finally {
+      _inTransaction = false;
+    }
+  }
+
+  /// [query]'s current result, then its result again every time one of
+  /// [tables] changes. The immediate first emission is the point: a screen
+  /// binding to this renders local data on its first frame, with no loading
+  /// state and no network.
+  Stream<T> watch<T>(Set<String> tables, T Function() query) {
+    late StreamController<T> controller;
+    StreamSubscription<Set<String>>? sub;
+
+    void push() {
+      if (controller.isClosed) return;
+      try {
+        controller.add(query());
+      } catch (e, s) {
+        controller.addError(e, s);
+      }
+    }
+
+    controller = StreamController<T>(
+      onListen: () {
+        push();
+        sub = _bus.changes.listen((touched) {
+          if (touched.any(tables.contains)) push();
+        });
+      },
+      onCancel: () async => sub?.cancel(),
+    );
+    return controller.stream;
+  }
+
+  Future<void> close() async {
+    await _bus.close();
+    raw.dispose();
+  }
 }
