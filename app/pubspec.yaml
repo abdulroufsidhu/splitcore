@@ -54,6 +54,36 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
 
+  # Fans assets/icon/icon.png out into every platform's launcher-icon
+  # format. Build-time only: run `dart run flutter_launcher_icons` after
+  # changing the source PNG, then commit the generated files.
+  flutter_launcher_icons: ^0.14.1
+
+# The mark: a paper disc with one wedge cut out and pushed clear of it —
+# ink/paper/positive straight off the app's own palette (lib/theme.dart).
+# Android gets the separate foreground because a launcher may mask the icon
+# into any shape, so the mark has to sit inside the 66% safe zone.
+flutter_launcher_icons:
+  image_path: "assets/icon/icon.png"
+  android: true
+  adaptive_icon_background: "#1B1915"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  ios: true
+  # The App Store rejects icons with an alpha channel.
+  remove_alpha_ios: true
+  macos:
+    generate: true
+    image_path: "assets/icon/icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    icon_size: 256
+  web:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    background_color: "#1B1915"
+    theme_color: "#1B1915"
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

@@ -63,6 +63,10 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
   late final Future<SplitcoreSdk> _sdkFuture = _initSdk();
   final ValueNotifier<AppUser?> currentUser = ValueNotifier(null);
 
+  /// Reaches the root navigator from the sign-out callback, which has no
+  /// BuildContext of its own — see [_signOut].
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   void initState() {
     super.initState();
@@ -82,6 +86,19 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) _refreshSession();
+  }
+
+  /// Ends the session and returns the user to the login screen.
+  ///
+  /// Clearing [currentUser] swaps what [MaterialApp.home] builds, but
+  /// anything pushed on top of it — the account screen, a modal sheet — is
+  /// a route in the navigator stack, and a root swap does not touch the
+  /// stack. Without the pop, signing out from account settings left the
+  /// user sitting on account settings until they thought to press back.
+  void _signOut(SplitcoreSdk sdk) {
+    _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+    sdk.auth.signOut();
+    currentUser.value = null;
   }
 
   Future<void> _refreshSession() async {
@@ -118,6 +135,7 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'SlicePay',
+      navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: sliceLightTheme(),
       darkTheme: sliceDarkTheme(),
@@ -152,10 +170,7 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
               return HomeScreen(
                 sdk: sdk,
                 me: user,
-                onSignedOut: () {
-                  sdk.auth.signOut();
-                  currentUser.value = null;
-                },
+                onSignedOut: () => _signOut(sdk),
                 onProfileUpdated: (u) => currentUser.value = u,
               );
             },
