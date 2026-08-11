@@ -48,6 +48,10 @@ void main() {
       password: 'password123',
     );
     other = await groupsApi.addMember(groupId: group.id, userId: otherUser.id, role: 'member');
+    // Re-read after the membership changes: adding a member bumps the
+    // group's version, so the version carried by the createGroup response
+    // is stale by the time this fixture is built.
+    group = await groupsApi.getGroup(group.id);
 
     final members = await groupsApi.listMembers(group.id);
     payer = members.firstWhere((m) => m.userId == ownerUser.id);

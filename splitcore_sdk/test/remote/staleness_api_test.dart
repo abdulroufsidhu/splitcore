@@ -34,6 +34,10 @@ void main() {
       password: 'password123',
     );
     group = await groupsApi.createGroup(name: 'Staleness test', currency: 'USD');
+    // Re-read: creating a group also creates the owner's group_members row,
+    // and that bumps the version *after* the create response was built, so
+    // the returned record's version is already one behind the server's.
+    group = await groupsApi.getGroup(group.id);
     payer = (await groupsApi.listMembers(group.id)).single;
   });
 

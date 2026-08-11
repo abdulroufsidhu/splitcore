@@ -136,7 +136,18 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
             valueListenable: currentUser,
             builder: (context, user, _) {
               if (user == null) {
-                return LoginScreen(sdk: sdk, onSignedIn: (u) => currentUser.value = u);
+                return LoginScreen(
+                  sdk: sdk,
+                  onSignedIn: (u) {
+                    currentUser.value = u;
+                    // The pull kicked off in _initSdk ran before anyone was
+                    // signed in, so it fetched nothing. Without this the
+                    // first thing a user sees after signing in is "no
+                    // groups yet", and their data only appears once they
+                    // think to pull to refresh.
+                    unawaited(sdk.sync.now().catchError((_) {}));
+                  },
+                );
               }
               return HomeScreen(
                 sdk: sdk,

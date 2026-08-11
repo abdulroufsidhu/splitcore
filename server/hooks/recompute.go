@@ -25,6 +25,25 @@ func bumpAndRecompute(app core.App, groupID string) error {
 	})
 }
 
+// bumpVersion increments a group's version without recomputing balances,
+// for changes that alter what clients must re-fetch but not what anybody
+// owes. A group already gone (its own delete is cascading into this row
+// right now) is a no-op, same as bumpAndRecomputeTx.
+func bumpVersion(app core.App, groupID string) error {
+	if groupID == "" {
+		return nil
+	}
+	group, err := app.FindRecordById("groups", groupID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	group.Set("version", group.GetInt("version")+1)
+	return app.Save(group)
+}
+
 func bumpAndRecomputeTx(app core.App, groupID string) error {
 	group, err := app.FindRecordById("groups", groupID)
 	if err != nil {

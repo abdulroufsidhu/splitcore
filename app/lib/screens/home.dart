@@ -77,6 +77,15 @@ class _HomeScreenState extends State<HomeScreen> {
   late final Loadable<List<GroupRow>> _rows = Loadable(widget.loadOverride ?? _fetchRows);
 
   StreamSubscription<List<Group>>? _groupsSub;
+  StreamSubscription<SyncEvent>? _syncSub;
+
+  /// True while the engine has a pull in flight. The local read that backs
+  /// [_rows] succeeds immediately with whatever is cached, so on a first
+  /// sign-in it succeeds with nothing — and an empty list is indistinguishable
+  /// from "you have no groups" unless the screen also knows a pull is still
+  /// running. Without this the user is told "No groups yet" while their
+  /// groups are on the wire.
+  bool _syncing = false;
 
   @override
   void initState() {
@@ -87,11 +96,16 @@ class _HomeScreenState extends State<HomeScreen> {
     // or by the pull that runs moments after launch — sits invisible until
     // the user pulls to refresh.
     _groupsSub = widget.sdk?.groups.watchGroups().skip(1).listen((_) => _load());
+    _syncSub = widget.sdk?.sync.events.listen((event) {
+      final syncing = event is SyncStarted;
+      if (mounted && syncing != _syncing) setState(() => _syncing = syncing);
+    });
   }
 
   @override
   void dispose() {
     unawaited(_groupsSub?.cancel());
+    unawaited(_syncSub?.cancel());
     _rows.dispose();
     super.dispose();
   }
@@ -246,7 +260,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       Expanded(
                         child: RefreshIndicator(
                           onRefresh: _refreshFromServer,
-                          child: rows.isEmpty
+                          child: rows.isEmpty && _syncing
+                              ? const SkeletonList()
+                              : rows.isEmpty
                               ? ListView(
                                   physics: const AlwaysScrollableScrollPhysics(),
                                   children: [

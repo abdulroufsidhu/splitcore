@@ -65,6 +65,21 @@ func Register(app core.App) {
 	app.OnRecordUpdate("expenses", "split_entries", "settlements").BindFunc(bind)
 	app.OnRecordDelete("expenses", "split_entries", "settlements").BindFunc(bind)
 
+	// A membership change moves no money, so there is nothing to recompute
+	// — but it does change what every member's client must have cached, and
+	// `version` is the only signal clients have that a group moved on. Left
+	// unbumped, a user added to a group stayed invisible on every other
+	// member's device (so nobody could split an expense with them) until an
+	// unrelated expense happened to bump the version and force a re-pull.
+	memberBind := func(e *core.RecordEvent) error {
+		if err := e.Next(); err != nil {
+			return err
+		}
+		return bumpVersion(e.App, e.Record.GetString("group"))
+	}
+	app.OnRecordCreate("group_members").BindFunc(memberBind)
+	app.OnRecordDelete("group_members").BindFunc(memberBind)
+
 	app.OnRecordDelete("groups").BindFunc(func(e *core.RecordEvent) error {
 		// PocketBase's built-in delete cascade processes the collections
 		// referencing "groups" in alphabetical order: balances, expenses,

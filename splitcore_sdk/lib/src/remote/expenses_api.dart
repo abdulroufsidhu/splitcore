@@ -305,6 +305,24 @@ class ExpensesApi {
     return [for (final r in records) _splitEntryFromRecord(r)];
   }
 
+  /// Every split entry in [groupId], grouped by expense id.
+  ///
+  /// The sync pull used to call [listSplitEntries] once per expense, which
+  /// is one network round trip per expense — the dominant cost of a first
+  /// sync on a high-latency link. Filtering on the `expense.group` relation
+  /// fetches the lot in a single request instead.
+  Future<Map<String, List<SplitEntry>>> listGroupSplitEntries(String groupId) async {
+    final records = await _pb
+        .collection('split_entries')
+        .getFullList(batch: 500, filter: byExpenseGroup(_pb, groupId));
+    final byExpenseId = <String, List<SplitEntry>>{};
+    for (final r in records) {
+      final entry = _splitEntryFromRecord(r);
+      (byExpenseId[entry.expenseId] ??= []).add(entry);
+    }
+    return byExpenseId;
+  }
+
   Future<void> deleteExpense(String expenseId) => _pb.collection('expenses').delete(expenseId);
 
   /// Public URL for a split entry's attached receipt image (PocketBase's

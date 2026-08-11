@@ -26,10 +26,29 @@ class AuthApi {
     return _userFromRecord(record);
   }
 
-  Future<AppUser> signUp({required String email, required String password}) async {
+  /// Creates the account and signs in as it.
+  ///
+  /// [name] is set on the record at creation rather than left for a later
+  /// [updateProfile]: it is what co-members see in /api/splitcore/members,
+  /// so a blank one means everyone in the group is looking at an unnamed
+  /// row until the user happens to find the account sheet. An avatar still
+  /// goes through [updateProfile] — it needs a multipart request, and it is
+  /// optional in a way a name is not.
+  Future<AppUser> signUp({
+    required String email,
+    required String password,
+    String name = '',
+  }) async {
     await _pb
         .collection('users')
-        .create(body: {'email': email, 'password': password, 'passwordConfirm': password});
+        .create(
+          body: {
+            'email': email,
+            'password': password,
+            'passwordConfirm': password,
+            if (name.isNotEmpty) 'name': name,
+          },
+        );
     return signIn(email: email, password: password);
   }
 

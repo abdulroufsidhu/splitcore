@@ -396,12 +396,14 @@ class SyncEngine {
 
     var pulled = 0;
     for (final group in remoteGroups) {
-      // An O(1) metadata check. Skipping a current group is the whole
-      // reason a reconnect stays cheap with a long history behind it.
-      final state = await _staleness(group.id, SyncStateDao(_db).versionOf(group.id));
-      if (state.current) continue;
+      // Skipping a current group is the whole reason a reconnect stays
+      // cheap with a long history behind it — but the check itself is free
+      // here: listMyGroups already returned the server's version on every
+      // group, so asking /staleness for it again was one extra round trip
+      // per group for an answer we were already holding.
+      if (SyncStateDao(_db).versionOf(group.id) == group.version) continue;
 
-      await _pullGroup(group, state.serverVersion);
+      await _pullGroup(group, group.version);
       pulled++;
     }
     return pulled;
@@ -413,14 +415,22 @@ class SyncEngine {
     // mirroring the server would delete the user's unsent work.
     final protected = OutboxDao(_db).pendingRecordIds();
 
-    final members = await _groups.listMembers(group.id);
-    final expenses = await _expenses.listAllExpenses(group.id);
-    final splits = <String, List<SplitEntry>>{};
-    for (final e in expenses) {
-      splits[e.id] = await _expenses.listSplitEntries(e.id);
-    }
-    final settlements = await _settlements.listAllSettlements(group.id);
-    final balances = await _balances.getBalances(group.id);
+    // Issued together, not one after another. None of the five depends on
+    // another's result, and on a link where a round trip costs a quarter of
+    // a second, serialising them was the difference between a sync that
+    // feels instant and one the user watches happen.
+    final fetched = await Future.wait([
+      _groups.listMembers(group.id),
+      _expenses.listAllExpenses(group.id),
+      _expenses.listGroupSplitEntries(group.id),
+      _settlements.listAllSettlements(group.id),
+      _balances.getBalances(group.id),
+    ]);
+    final members = fetched[0] as List<GroupMember>;
+    final expenses = fetched[1] as List<Expense>;
+    final splits = fetched[2] as Map<String, List<SplitEntry>>;
+    final settlements = fetched[3] as List<Settlement>;
+    final balances = fetched[4] as List<Balance>;
 
     // One commit: a screen must never observe new expenses against old
     // balances, which is exactly the "my numbers don't add up" bug report.

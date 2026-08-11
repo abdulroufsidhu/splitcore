@@ -15,16 +15,62 @@ import (
 
 func TestVersionIncrementsOnExpenseCreate(t *testing.T) {
 	f := testfix.New(t)
-	if v := f.Version(t); v != 0 {
-		t.Fatalf("initial version = %d, want 0", v)
-	}
+	// Relative to whatever the fixture's own setup left behind: building it
+	// adds two members, and those bump the version too.
+	before := f.Version(t)
 
 	expense := f.CreateExpense(t, f.AliceM, 3000, "exact")
 	f.CreateSplit(t, expense, f.AliceM, 1000)
 	f.CreateSplit(t, expense, f.BobM, 2000)
 
-	if v := f.Version(t); v != 3 {
-		t.Fatalf("version after expense+2 splits = %d, want 3", v)
+	if got := f.Version(t) - before; got != 3 {
+		t.Fatalf("version delta after expense+2 splits = %d, want 3", got)
+	}
+}
+
+func TestVersionIncrementsOnMembershipChange(t *testing.T) {
+	f := testfix.New(t)
+	before := f.Version(t)
+
+	// A membership change moves no money, so nothing here recomputes — but
+	// it does change what every member's client must re-fetch, and version
+	// is the only signal they get. Left unbumped, a newly added member
+	// stayed invisible on everyone else's device until an unrelated expense
+	// happened to bump the version for them.
+	usersCol, err := f.App.FindCollectionByNameOrId("users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	carol := core.NewRecord(usersCol)
+	carol.Set("email", "carol@example.com")
+	carol.Set("password", "password123")
+	carol.Set("verified", true)
+	if err := f.App.Save(carol); err != nil {
+		t.Fatal(err)
+	}
+
+	membersCol, err := f.App.FindCollectionByNameOrId("group_members")
+	if err != nil {
+		t.Fatal(err)
+	}
+	carolM := core.NewRecord(membersCol)
+	carolM.Set("group", f.Group.Id)
+	carolM.Set("user", carol.Id)
+	carolM.Set("role", "member")
+	if err := f.App.Save(carolM); err != nil {
+		t.Fatal(err)
+	}
+
+	afterAdd := f.Version(t)
+	if got := afterAdd - before; got != 1 {
+		t.Fatalf("version delta after adding a member = %d, want 1", got)
+	}
+
+	if err := f.App.Delete(carolM); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Version(t) - afterAdd; got != 1 {
+		t.Fatalf("version delta after removing a member = %d, want 1", got)
 	}
 }
 

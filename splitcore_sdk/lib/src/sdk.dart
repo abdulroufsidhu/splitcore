@@ -35,6 +35,7 @@ class SplitcoreSdk {
     this.sync,
     this._calc,
     this._db,
+    this._http,
   );
 
   /// Opens the splitcore native library at [libraryPath] and connects to
@@ -62,10 +63,13 @@ class SplitcoreSdk {
     TokenStore? tokenStore,
     ConnectivityMonitor? connectivity,
   }) {
+    // One client for the whole SDK instance, handed out unclosable — see
+    // _SharedClient.
+    final shared = _TimeoutClient(http.Client(), const Duration(seconds: 15));
     final pb = PocketBase(
       pocketbaseUrl,
       authStore: tokenStore == null ? null : asAuthStore(tokenStore),
-      httpClientFactory: () => _TimeoutClient(http.Client(), const Duration(seconds: 15)),
+      httpClientFactory: () => _SharedClient(shared),
     );
     final calc = SplitcoreCalc.open(libraryPath);
     final db = databasePath == null ? SplitcoreDb.inMemory() : SplitcoreDb.openAt(databasePath);
@@ -104,6 +108,7 @@ class SplitcoreSdk {
       sync,
       calc,
       db,
+      shared,
     );
   }
 
@@ -122,11 +127,16 @@ class SplitcoreSdk {
   final SplitcoreCalc _calc;
   final SplitcoreDb _db;
 
-  /// Stops the sync engine and releases the database handle. The SDK is
-  /// unusable afterwards.
+  /// The one client every request shares. Nothing else may close it — see
+  /// [_SharedClient].
+  final http.Client _http;
+
+  /// Stops the sync engine and releases the database handle and the shared
+  /// connection pool. The SDK is unusable afterwards.
   Future<void> close() async {
     await sync.dispose();
     await _db.close();
+    _http.close();
   }
 
   /// Suggests the minimal set of transfers to zero out [balances].
@@ -149,4 +159,33 @@ class _TimeoutClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) =>
       _inner.send(request).timeout(_timeout);
+}
+
+/// A disposable handle onto one long-lived client.
+///
+/// PocketBase builds a client per request and closes it when the request
+/// finishes (pocketbase 0.22.0, client.dart:258 and :300), so every call
+/// opened a fresh TCP connection and ran a fresh TLS handshake. Against a
+/// server a quarter of a second away that is roughly 650ms of setup on top
+/// of the round trip, and a first sync is dozens of calls: measured, the
+/// same 36-request sync takes 31s connection-per-request and 9.7s over one
+/// kept-alive connection.
+///
+/// [close] is therefore deliberately a no-op — the point is that
+/// PocketBase's per-request teardown cannot tear down the pool the rest of
+/// the SDK is relying on. The real client is released by
+/// [SplitcoreSdk.close].
+///
+/// Safe for realtime too: the SSE client frees its socket by cancelling the
+/// response stream subscription (pocketbase sse/sse_client.dart:107), not
+/// by closing the http client.
+class _SharedClient extends http.BaseClient {
+  _SharedClient(this._inner);
+  final http.Client _inner;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) => _inner.send(request);
+
+  @override
+  void close() {}
 }

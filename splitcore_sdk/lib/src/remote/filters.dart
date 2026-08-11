@@ -11,3 +11,8 @@ String byGroup(PocketBase pb, String groupId) => pb.filter('group = {:g}', {'g':
 
 /// Split entries belonging to [expenseId].
 String byExpense(PocketBase pb, String expenseId) => pb.filter('expense = {:e}', {'e': expenseId});
+
+/// Split entries belonging to any expense in [groupId], via the relation.
+/// One request for the whole group instead of one per expense.
+String byExpenseGroup(PocketBase pb, String groupId) =>
+    pb.filter('expense.group = {:g}', {'g': groupId});
