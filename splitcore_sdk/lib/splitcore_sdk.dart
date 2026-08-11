@@ -29,7 +29,7 @@ export 'src/remote/export_api.dart' show ExportApi;
 export 'src/remote/token_store.dart' show FileTokenStore, TokenStore;
 export 'src/repo/balances_repository.dart' show BalancesRepository;
 export 'src/repo/expenses_repository.dart' show ExpensesRepository;
-export 'src/repo/groups_repository.dart' show GroupsRepository;
+export 'src/repo/groups_repository.dart' show GroupsRepository, UnsyncedWritesException;
 export 'src/repo/settlements_repository.dart' show SettlementsRepository;
 export 'src/sdk.dart' show SplitcoreSdk;
 export 'src/sync/events.dart'

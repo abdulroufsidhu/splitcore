@@ -61,6 +61,7 @@ class GroupDetailScreen extends StatefulWidget {
     this.loadOverride,
     this.searchOverride,
     this.removeMemberOverride,
+    this.unsentCountOverride,
   });
 
   /// Null only in widget tests, which supply [loadOverride] instead.
@@ -71,6 +72,10 @@ class GroupDetailScreen extends StatefulWidget {
   /// [GroupsRepository.removeMember] does.
   @visibleForTesting
   final Future<String> Function(String memberId)? removeMemberOverride;
+
+  /// Test seam for "how much work has not reached the server yet".
+  @visibleForTesting
+  final Future<int> Function()? unsentCountOverride;
   final AppUser me;
   final Group group;
 
@@ -587,11 +592,22 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     final iAmOwner = widget.group.ownerId == widget.me.id;
     final isGroupOwner = member.userId == widget.group.ownerId;
     final name = displayName(member, widget.me);
+    final unsent = await _unsentCount();
+    if (!mounted) return;
 
-    final String? blocked = switch ((iAmOwner, isGroupOwner, net)) {
-      (false, _, _) => 'Only the group owner can remove members.',
-      (_, true, _) => "The group's owner can't be removed.",
-      (_, _, final n) when n != 0 =>
+    // Unsent work outranks the balance, because it is what makes the
+    // balance untrustworthy: the server judges a removal on what it can
+    // see, and anything still queued is invisible to it.
+    final String? blocked = switch ((iAmOwner, isGroupOwner, unsent, net)) {
+      (false, _, _, _) => 'Only the group owner can remove members.',
+      (_, true, _, _) => "The group's owner can't be removed.",
+      (_, _, final u, _) when u > 0 =>
+        u == 1
+            ? "1 change hasn't reached the server yet. Nobody can be removed until it "
+                  'syncs — removing someone now could discard that change.'
+            : "$u changes haven't reached the server yet. Nobody can be removed until "
+                  'they sync — removing someone now could discard them.',
+      (_, _, _, final n) when n != 0 =>
         '$name has an unsettled balance. Settle up before removing them.',
       _ => null,
     };
@@ -687,10 +703,34 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
         ),
       );
       await refresh();
+    } on UnsyncedWritesException catch (e) {
+      // The queue can fill up between opening the sheet and confirming, so
+      // the check above is a courtesy and this is the real gate.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "${e.count} change(s) still haven't reached the server. "
+            '$name was not removed — try again once everything has synced.',
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Couldn't remove: $e")));
     }
+  }
+
+  /// Work the server has not seen yet and still might: queued writes, plus
+  /// edits parked on a conflict, which replay if the user keeps their
+  /// version. Ops the server already rejected are excluded — nothing
+  /// replays them, so they cannot affect a removal.
+  Future<int> _unsentCount() async {
+    final override = widget.unsentCountOverride;
+    if (override != null) return override();
+    final sync = widget.sdk?.sync;
+    if (sync == null) return 0;
+    return (await sync.queued()).length + (await sync.conflicts()).length;
   }
 
   Future<void> _showAddMemberSheet(BuildContext context) async {

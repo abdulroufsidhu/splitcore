@@ -28,6 +28,7 @@ Widget _host({
   required Future<GroupDetailData> Function() load,
   AppUser me = _me,
   Future<String> Function(String memberId)? removeMember,
+  int unsent = 0,
 }) => MaterialApp(
   theme: sliceLightTheme(),
   home: GroupDetailScreen(
@@ -36,6 +37,7 @@ Widget _host({
     group: _group,
     loadOverride: load,
     removeMemberOverride: removeMember,
+    unsentCountOverride: () async => unsent,
   ),
 );
 
@@ -203,5 +205,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Former members: Robin'), findsOneWidget);
+  });
+
+  testWidgets('nobody can be removed while writes are still unsent', (tester) async {
+    // The server judges a removal on what it can see. A queued expense that
+    // splits with this member is invisible to it, so they would look like
+    // someone with no history and nothing owed, get deleted outright, and
+    // take the queued expense down with them when it failed to replay.
+    final removed = <String>[];
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(),
+        unsent: 2,
+        removeMember: (id) async {
+          removed.add(id);
+          return 'removed';
+        },
+      ),
+    );
+    await _openSamsSheet(tester);
+
+    expect(find.widgetWithText(FilledButton, 'Remove from group'), findsNothing);
+    expect(find.textContaining("haven't reached the server"), findsOneWidget);
+    expect(removed, isEmpty);
   });
 }

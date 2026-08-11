@@ -58,6 +58,25 @@ class OutboxDao {
       row['record_id'] as String,
   };
 
+  /// The records whose local row a pull must not overwrite: ops still
+  /// queued, plus ops parked on a conflict.
+  ///
+  /// A parked conflict is waiting on the user to choose between their
+  /// version and the server's. Letting the pull mirror the server over the
+  /// local row would answer that question for them — and answer it wrong,
+  /// since the edit they are being asked about would no longer be on screen.
+  ///
+  /// `failed` is deliberately absent. The server rejected those outright
+  /// with a 4xx that replaying will not fix, and nothing ever retries them
+  /// (only [requeue], which conflict resolution alone calls), so the
+  /// server's version is the truthful one to show.
+  Set<String> unsettledRecordIds() => {
+    for (final row in _db.raw.select(
+      "SELECT record_id FROM outbox WHERE state IN ('pending', 'conflict')",
+    ))
+      row['record_id'] as String,
+  };
+
   void delete(int seq) => _db.raw.execute('DELETE FROM outbox WHERE seq = ?', [seq]);
 
   /// Drops every op for a record whatever its state — used when a conflict

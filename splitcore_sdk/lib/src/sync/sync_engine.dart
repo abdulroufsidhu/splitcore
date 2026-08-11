@@ -413,7 +413,7 @@ class SyncEngine {
     // Snapshotted before the fetch: anything queued now — or enqueued while
     // the requests below are in flight — must survive this pull. Blindly
     // mirroring the server would delete the user's unsent work.
-    final protected = OutboxDao(_db).pendingRecordIds();
+    final protected = OutboxDao(_db).unsettledRecordIds();
 
     // Issued together, not one after another. None of the five depends on
     // another's result, and on a link where a round trip costs a quarter of
@@ -441,7 +441,7 @@ class SyncEngine {
       () {
         // Re-read inside the commit: a write may have been enqueued while
         // the requests above were in flight, and that row must survive too.
-        final keep = protected.union(OutboxDao(_db).pendingRecordIds());
+        final keep = protected.union(OutboxDao(_db).unsettledRecordIds());
         GroupDao(_db).upsertGroups([group]);
         GroupDao(_db).upsertMembers(group.id, members);
         ExpenseDao(_db).replaceGroupExpenses(group.id, expenses, splits, protectedIds: keep);

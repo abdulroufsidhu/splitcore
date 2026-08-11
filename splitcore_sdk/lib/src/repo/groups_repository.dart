@@ -8,6 +8,21 @@ import '../models.dart';
 import '../remote/groups_api.dart';
 import '../sync/sync_engine.dart';
 
+/// Thrown when an action cannot be judged safely because local writes have
+/// not reached the server yet.
+///
+/// The server decides what a removal means from what it can see, and it
+/// cannot see the outbox — so unsent work has to land first.
+class UnsyncedWritesException implements Exception {
+  const UnsyncedWritesException(this.count);
+
+  /// How many outbox entries are still unsettled.
+  final int count;
+
+  @override
+  String toString() => 'UnsyncedWritesException: $count change(s) have not reached the server yet';
+}
+
 class GroupsRepository {
   GroupsRepository(this._db, this._api, this._sync);
 
@@ -75,10 +90,30 @@ class GroupsRepository {
   /// `'removed'` (row deleted) or `'deactivated'` (row kept, marked). See
   /// [GroupsApi.removeMember] for when each happens and what it throws.
   ///
-  /// Online-only, like [inviteOrAddMember]: the balance check that gates a
-  /// removal lives on the server, so an optimistic offline removal could
-  /// show someone gone and then be refused when it replayed.
+  /// Drains the outbox first, and throws [UnsyncedWritesException] if it
+  /// cannot be drained. This ordering is load-bearing, not tidiness: the
+  /// server decides between deleting the row and merely marking it from the
+  /// history it can see, and it cannot see the outbox. An expense queued
+  /// offline that splits with this member makes them look like someone with
+  /// no history and nothing owed, so their row is deleted outright — and
+  /// then the queued write replays against a member id that no longer
+  /// exists, is rejected, and the expense is lost from the server and the
+  /// device both. Draining first means the server judges the real state:
+  /// the member turns out to have history (so the row is kept) or an
+  /// outstanding balance (so the removal is refused).
+  ///
+  /// Online-only, like [inviteOrAddMember].
   Future<String> removeMember(String memberId) async {
+    await _sync.now();
+    // Queued ops will be applied, and a parked conflict will be too if the
+    // user keeps their version — either can reference the member being
+    // removed. Ops the server already rejected are left out on purpose:
+    // nothing ever replays them, so they cannot resurrect a deleted member,
+    // and counting them would let one stuck failure block every removal in
+    // the group forever.
+    final unsent = (await _sync.queued()).length + (await _sync.conflicts()).length;
+    if (unsent > 0) throw UnsyncedWritesException(unsent);
+
     final status = await _api.removeMember(memberId);
     await _sync.now();
     return status;
