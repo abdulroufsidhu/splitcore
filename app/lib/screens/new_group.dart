@@ -13,9 +13,17 @@ import '../widgets/currency_picker.dart';
 import '../widgets/page_body.dart';
 
 class NewGroupScreen extends StatefulWidget {
-  const NewGroupScreen({super.key, required this.sdk});
+  const NewGroupScreen({super.key, required this.sdk, this.createOverride, this.inviteOverride});
 
-  final SplitcoreSdk sdk;
+  /// Null only in widget tests, which supply the overrides below.
+  final SplitcoreSdk? sdk;
+
+  /// Test seams, so a test can prove which emails actually get invited
+  /// without standing up an SDK and a server.
+  @visibleForTesting
+  final Future<Group> Function({required String name, required String currency})? createOverride;
+  @visibleForTesting
+  final Future<bool> Function({required String groupId, required String email})? inviteOverride;
 
   @override
   State<NewGroupScreen> createState() => _NewGroupScreenState();
@@ -46,6 +54,14 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
   }
 
   Future<void> _create() async {
+    // Commit whatever is still sitting in the email field. Only "+" and the
+    // keyboard's submit key fed _pendingEmails, so typing an address and
+    // going straight for "Create group" — which is what the layout invites
+    // you to do — dropped it silently and created the group with nobody in
+    // it. The group detail screen's own add-member field reads its
+    // controller directly and never had this problem.
+    _addPendingEmail();
+
     if (_name.text.trim().isEmpty) {
       setState(() => _error = 'Enter a group name.');
       return;
@@ -55,14 +71,13 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
       _error = null;
     });
     try {
-      final group = await widget.sdk.groups.createGroup(
-        name: _name.text.trim(),
-        currency: _currency,
-      );
+      final create = widget.createOverride ?? widget.sdk!.groups.createGroup;
+      final invite = widget.inviteOverride ?? widget.sdk!.groups.inviteOrAddMember;
+      final group = await create(name: _name.text.trim(), currency: _currency);
       final failures = <String>[];
       for (final email in _pendingEmails) {
         try {
-          await widget.sdk.groups.inviteOrAddMember(groupId: group.id, email: email);
+          await invite(groupId: group.id, email: email);
         } catch (_) {
           failures.add(email);
         }

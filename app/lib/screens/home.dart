@@ -322,9 +322,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            backgroundColor: slice.paper,
-                          ),
+                          style: OutlinedButton.styleFrom(backgroundColor: slice.paper),
                           onPressed: () async {
                             await _showAddPersonSheet(context);
                             _refresh();
