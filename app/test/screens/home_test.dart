@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
@@ -10,7 +12,11 @@ const _me = AppUser(id: 'u1', email: 'me@example.com', name: 'Me', avatarUrl: ''
 Group _group({String id = 'g1', String name = 'Trip', String currency = 'USD'}) =>
     Group(id: id, name: name, currency: currency, version: 1, ownerId: 'u1');
 
-Widget _host({required Future<List<GroupRow>> Function() load}) => MaterialApp(
+Widget _host({
+  required Future<List<GroupRow>> Function() load,
+  Future<AppUser> Function({String? name, Uint8List? avatarBytes, String? avatarFilename})?
+  updateProfile,
+}) => MaterialApp(
   theme: sliceLightTheme(),
   home: HomeScreen(
     sdk: null,
@@ -18,6 +24,7 @@ Widget _host({required Future<List<GroupRow>> Function() load}) => MaterialApp(
     onSignedOut: () {},
     onProfileUpdated: (_) {},
     loadOverride: load,
+    updateProfileOverride: updateProfile,
   ),
 );
 
@@ -85,5 +92,34 @@ void main() {
     await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
 
     handle.dispose();
+  });
+
+  testWidgets('editing the profile actually sends the new name', (tester) async {
+    // Regression: the "Edit profile" tile used to hand the sheet its own
+    // context right after popping it, so the post-Save mounted check was
+    // false and updateProfile was never called — the name silently never
+    // reached the server, with no error shown.
+    String? sentName;
+    await tester.pumpWidget(
+      _host(
+        load: () async => [GroupRow(_group(), 'm1', 0, 2, '', '')],
+        updateProfile: ({String? name, Uint8List? avatarBytes, String? avatarFilename}) async {
+          sentName = name;
+          return AppUser(id: 'u1', email: 'me@example.com', name: name ?? '', avatarUrl: '');
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('Account'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit profile'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.widgetWithText(TextField, 'Me'), 'Renamed Person');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(sentName, 'Renamed Person');
   });
 }

@@ -54,6 +54,7 @@ class HomeScreen extends StatefulWidget {
     required this.onSignedOut,
     required this.onProfileUpdated,
     this.loadOverride,
+    this.updateProfileOverride,
   });
 
   /// Null only in widget tests, which supply [loadOverride] instead.
@@ -69,6 +70,13 @@ class HomeScreen extends StatefulWidget {
   @visibleForTesting
   final Future<List<GroupRow>> Function()? loadOverride;
 
+  /// Test seam for the profile save, so a test can prove the request is
+  /// actually issued without standing up an SDK. Matches
+  /// [AuthApi.updateProfile]'s signature.
+  @visibleForTesting
+  final Future<AppUser> Function({String? name, Uint8List? avatarBytes, String? avatarFilename})?
+  updateProfileOverride;
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -78,6 +86,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   StreamSubscription<List<Group>>? _groupsSub;
   StreamSubscription<SyncEvent>? _syncSub;
+
+  /// Owned by the State, not built per sheet. A controller created inside
+  /// _showEditProfileSheet had to be disposed there too, and the only place
+  /// to do that was the moment showModalBottomSheet's future resolved — but
+  /// the sheet's TextField is still on screen through the dismiss
+  /// animation, so it read a disposed controller every time.
+  final TextEditingController _profileName = TextEditingController();
 
   /// True while the engine has a pull in flight. The local read that backs
   /// [_rows] succeeds immediately with whatever is cached, so on a first
@@ -106,6 +121,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     unawaited(_groupsSub?.cancel());
     unawaited(_syncSub?.cancel());
+    _profileName.dispose();
     _rows.dispose();
     super.dispose();
   }
@@ -306,6 +322,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: slice.paper,
+                          ),
                           onPressed: () async {
                             await _showAddPersonSheet(context);
                             _refresh();
@@ -360,7 +379,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const Text('Add person', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
               const SizedBox(height: 12),
               TextField(
-                controller: nameController,
+                controller: _profileName,
                 decoration: const InputDecoration(labelText: 'Name'),
                 autofocus: true,
               ),
@@ -429,7 +448,7 @@ class _HomeScreenState extends State<HomeScreen> {
               title: const Text('Edit profile'),
               onTap: () {
                 Navigator.of(context).pop();
-                _showEditProfileSheet(context);
+                _showEditProfileSheet();
               },
             ),
             ListTile(
@@ -463,8 +482,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _showEditProfileSheet(BuildContext context) async {
-    final nameController = TextEditingController(text: widget.me.name);
+  /// Takes no BuildContext on purpose. It used to, and the "Edit profile"
+  /// tile passed it the account sheet's own context immediately after
+  /// popping that sheet — so by the time the user typed a name and pressed
+  /// Save, the `context.mounted` guard below was false and the whole save
+  /// was silently skipped. The State's context outlives every sheet this
+  /// screen opens, which is the only thing that guard can safely ask about.
+  Future<void> _showEditProfileSheet() async {
+    _profileName.text = widget.me.name;
     Uint8List? pickedBytes;
     XFile? pickedFile;
     final saved = await showModalBottomSheet<bool>(
@@ -505,7 +530,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 16),
               TextField(
-                controller: nameController,
+                controller: _profileName,
                 decoration: const InputDecoration(labelText: 'Name'),
                 autofocus: true,
               ),
@@ -519,11 +544,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    final newName = nameController.text.trim();
-    nameController.dispose();
-    if (saved != true || !context.mounted) return;
+    final newName = _profileName.text.trim();
+    if (saved != true || !mounted) return;
     try {
-      final updated = await widget.sdk!.auth.updateProfile(
+      final update = widget.updateProfileOverride ?? widget.sdk!.auth.updateProfile;
+      final updated = await update(
         name: newName.isEmpty ? null : newName,
         avatarBytes: pickedBytes,
         avatarFilename: pickedFile?.name,
@@ -531,7 +556,7 @@ class _HomeScreenState extends State<HomeScreen> {
       widget.onProfileUpdated(updated);
       _refresh();
     } catch (e) {
-      if (!context.mounted) return;
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
     }
   }
