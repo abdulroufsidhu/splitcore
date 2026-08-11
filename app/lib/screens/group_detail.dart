@@ -16,6 +16,7 @@ import '../loadable.dart';
 import '../money.dart';
 import '../theme.dart';
 import '../widgets/async_section.dart';
+import '../widgets/avatar.dart';
 import '../widgets/money_text.dart';
 import '../widgets/page_body.dart';
 import '../widgets/skeleton.dart';
@@ -31,9 +32,16 @@ class GroupDetailData {
     required this.balances,
     required this.expenses,
     required this.settlements,
+    this.formerMembers = const [],
   });
 
+  /// The group's current members.
   final List<GroupMember> members;
+
+  /// People the owner has removed whose rows had to be kept, because their
+  /// expenses and everyone's balances reference them. Shown as a muted line
+  /// so a removal is legible rather than a silent disappearance.
+  final List<GroupMember> formerMembers;
   final List<Balance> balances;
   final List<Expense> expenses;
   final List<Settlement> settlements;
@@ -52,10 +60,17 @@ class GroupDetailScreen extends StatefulWidget {
     required this.group,
     this.loadOverride,
     this.searchOverride,
+    this.removeMemberOverride,
   });
 
   /// Null only in widget tests, which supply [loadOverride] instead.
   final SplitcoreSdk? sdk;
+
+  /// Test seam for the removal call, so a test can drive the sheet's rules
+  /// without an SDK. Returns the server's status, as
+  /// [GroupsRepository.removeMember] does.
+  @visibleForTesting
+  final Future<String> Function(String memberId)? removeMemberOverride;
   final AppUser me;
   final Group group;
 
@@ -127,11 +142,16 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
   Future<GroupDetailData> _fetch() async {
     final sdk = widget.sdk!;
     final members = await sdk.groups.listMembers(widget.group.id);
+    final everyone = await sdk.groups.listAllMembers(widget.group.id);
     final balances = await sdk.balances.get(widget.group.id);
     final expenses = await sdk.expenses.listExpenses(widget.group.id);
     final settlements = await sdk.settlements.listSettlements(widget.group.id);
     return GroupDetailData(
       members: members,
+      formerMembers: [
+        for (final m in everyone)
+          if (!m.isActive) m,
+      ],
       balances: balances,
       expenses: expenses,
       settlements: settlements,
@@ -345,37 +365,40 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                               child: Row(
                                 children: [
                                   for (final member in data.members)
-                                    Container(
-                                      width: 120,
-                                      margin: const EdgeInsets.only(right: 8),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 10,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: slice.card,
-                                        border: Border.all(color: slice.border),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            displayName(member, widget.me),
-                                            style: TextStyle(
-                                              fontSize: 11.5,
-                                              fontWeight: FontWeight.w600,
-                                              color: slice.ink,
+                                    GestureDetector(
+                                      onTap: () => _showMemberSheet(member, data),
+                                      child: Container(
+                                        width: 120,
+                                        margin: const EdgeInsets.only(right: 8),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 10,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: slice.card,
+                                          border: Border.all(color: slice.border),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              displayName(member, widget.me),
+                                              style: TextStyle(
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.w600,
+                                                color: slice.ink,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
                                             ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          const SizedBox(height: 3),
-                                          MoneyText(
-                                            data.netFor(member.id),
-                                            widget.group.currency,
-                                            size: 16,
-                                          ),
-                                        ],
+                                            const SizedBox(height: 3),
+                                            MoneyText(
+                                              data.netFor(member.id),
+                                              widget.group.currency,
+                                              size: 16,
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                 ],
@@ -383,6 +406,15 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                             ),
                           ),
                         ),
+                        if (data.formerMembers.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                            child: Text(
+                              'Former members: '
+                              '${data.formerMembers.map((m) => displayName(m, widget.me)).join(', ')}',
+                              style: TextStyle(fontSize: 12, color: slice.muted),
+                            ),
+                          ),
                         Padding(
                           padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
                           child: TextField(
@@ -538,6 +570,127 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
         ),
       ),
     );
+  }
+
+  /// The member sheet: who they are, what they owe, and — for the owner —
+  /// the way out of the group.
+  ///
+  /// The rules live in the button's state rather than in an error the user
+  /// only sees after tapping: a non-owner never sees it, the group's owner
+  /// is never removable, and a member with money outstanding gets a disabled
+  /// button with the reason next to it. The server enforces all three
+  /// regardless (server/hooks/remove_member.go) — this is so the user knows
+  /// where they stand before acting.
+  Future<void> _showMemberSheet(GroupMember member, GroupDetailData data) async {
+    final slice = context.slice;
+    final net = data.netFor(member.id);
+    final iAmOwner = widget.group.ownerId == widget.me.id;
+    final isGroupOwner = member.userId == widget.group.ownerId;
+    final name = displayName(member, widget.me);
+
+    final String? blocked = switch ((iAmOwner, isGroupOwner, net)) {
+      (false, _, _) => 'Only the group owner can remove members.',
+      (_, true, _) => "The group's owner can't be removed.",
+      (_, _, final n) when n != 0 =>
+        '$name has an unsettled balance. Settle up before removing them.',
+      _ => null,
+    };
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Avatar(
+                    initialsFor(member, widget.me),
+                    imageUrl: member.avatarUrl,
+                    size: 44,
+                    background: slice.ink,
+                    foreground: slice.paper,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                        ),
+                        Text(
+                          isGroupOwner ? 'Owner' : 'Member',
+                          style: TextStyle(fontSize: 12, color: slice.muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  MoneyText(net, widget.group.currency, size: 18),
+                ],
+              ),
+              const SizedBox(height: 20),
+              if (blocked != null)
+                Text(blocked, style: TextStyle(fontSize: 12.5, color: slice.muted))
+              else
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: slice.negative),
+                  onPressed: () => Navigator.of(sheetContext).pop(true),
+                  child: const Text('Remove from group'),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // Removal is not undoable from here — re-adding is a separate trip
+    // through the Add member sheet — so it gets a confirmation of its own.
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Remove $name?'),
+        content: Text(
+          "They'll be taken out of ${widget.group.name}. Any expenses they're "
+          'already part of stay in the group, so nobody else’s balance changes.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('Remove', style: TextStyle(color: slice.negative)),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true || !mounted) return;
+
+    try {
+      final remove = widget.removeMemberOverride ?? widget.sdk!.groups.removeMember;
+      final status = await remove(member.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            status == 'deactivated'
+                ? "$name removed — their past expenses stay in this group's history."
+                : '$name removed.',
+          ),
+        ),
+      );
+      await refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Couldn't remove: $e")));
+    }
   }
 
   Future<void> _showAddMemberSheet(BuildContext context) async {

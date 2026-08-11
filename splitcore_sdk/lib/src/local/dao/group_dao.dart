@@ -68,22 +68,45 @@ class GroupDao {
   /// Replaces [groupId]'s member list wholesale — a removed member must not
   /// linger, and the list is small enough that diffing would be more code
   /// than it saves.
+  /// Mirrors the whole roster, removed members included — they own past
+  /// expenses, so history still has to be able to name them. Filtering is
+  /// [listMembers]' job, not storage's.
   void upsertMembers(String groupId, List<GroupMember> members) {
     _db.raw.execute('DELETE FROM members WHERE group_id = ?', [groupId]);
     final statement = _db.raw.prepare('''
-      INSERT INTO members (id, group_id, user_id, role, name, avatar_url, updated, pending)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+      INSERT INTO members
+        (id, group_id, user_id, role, name, avatar_url, removed_at, updated, pending)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
     ''');
     try {
       for (final m in members) {
-        statement.execute([m.id, groupId, m.userId, m.role, m.name, m.avatarUrl, null]);
+        statement.execute([
+          m.id,
+          groupId,
+          m.userId,
+          m.role,
+          m.name,
+          m.avatarUrl,
+          // The stamp itself is the server's; locally only its presence
+          // matters, so an active member stores the empty string.
+          m.isActive ? '' : 'removed',
+          null,
+        ]);
       }
     } finally {
       statement.dispose();
     }
   }
 
-  List<GroupMember> listMembers(String groupId) => _db.raw
+  /// The group's current members. Removed members are excluded, because
+  /// every caller — split pickers, settle-up, member counts — means "who is
+  /// in this group now". [listAllMembers] is the deliberate exception.
+  List<GroupMember> listMembers(String groupId) =>
+      listAllMembers(groupId).where((m) => m.isActive).toList();
+
+  /// Everyone who has ever been in the group, removed members included.
+  /// Only the screen that shows former members should ask for this.
+  List<GroupMember> listAllMembers(String groupId) => _db.raw
       .select('SELECT * FROM members WHERE group_id = ? ORDER BY name COLLATE NOCASE', [groupId])
       .map(
         (r) => GroupMember(
@@ -93,6 +116,7 @@ class GroupDao {
           role: r['role'] as String,
           name: r['name'] as String,
           avatarUrl: r['avatar_url'] as String,
+          isActive: (r['removed_at'] as String? ?? '').isEmpty,
         ),
       )
       .toList();

@@ -50,6 +50,7 @@ class GroupsApi {
           role: m['role'] as String? ?? 'member',
           name: m['name'] as String? ?? '',
           avatarUrl: _avatarUrl(m['user'] as String? ?? '', m['avatar'] as String? ?? ''),
+          isActive: (m['removed_at'] as String? ?? '').isEmpty,
         ),
     ];
   }
@@ -68,7 +69,28 @@ class GroupsApi {
     return _memberFromRecord(record);
   }
 
-  Future<void> removeMember(String memberId) => _pb.collection('group_members').delete(memberId);
+  /// Takes [memberId] out of their group, and reports what the server
+  /// actually did:
+  ///
+  ///  * `'removed'` — they appear nowhere in the ledger, so the membership
+  ///    row was deleted outright and no trace is left.
+  ///  * `'deactivated'` — they appear in expenses or settlements, so the row
+  ///    had to stay for everyone else's balances to remain correct. They are
+  ///    marked removed instead, and drop out of every member list.
+  ///
+  /// Throws when the server refuses — notably while the member's balance is
+  /// non-zero (settle up first), when they are the group's owner, or when
+  /// the caller does not own the group. Goes through
+  /// /api/splitcore/remove-member rather than a plain delete because that
+  /// choice cannot be made client-side (see server/hooks/remove_member.go).
+  Future<String> removeMember(String memberId) async {
+    final response = await _pb.send<Map<String, dynamic>>(
+      '/api/splitcore/remove-member',
+      method: 'POST',
+      body: {'member_id': memberId},
+    );
+    return response['status'] as String? ?? 'removed';
+  }
 
   /// Adds [email] to [groupId] if they already have an account, or records
   /// a pending invite that auto-joins them the moment they sign up with

@@ -78,6 +78,7 @@ func Register(app core.App) {
 		return bumpVersion(e.App, e.Record.GetString("group"))
 	}
 	app.OnRecordCreate("group_members").BindFunc(memberBind)
+	app.OnRecordUpdate("group_members").BindFunc(memberBind)
 	app.OnRecordDelete("group_members").BindFunc(memberBind)
 
 	app.OnRecordDelete("groups").BindFunc(func(e *core.RecordEvent) error {
@@ -115,6 +116,7 @@ func Register(app core.App) {
 	})
 
 	registerStaleness(app)
+	registerRemoveMember(app)
 	registerInvite(app)
 	registerInviteAcceptance(app)
 	registerMembers(app)

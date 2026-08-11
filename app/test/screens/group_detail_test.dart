@@ -24,10 +24,36 @@ Expense _expense(String id, String description, {int amountCents = 5000}) => Exp
   date: DateTime.utc(2026, 7, 1),
 );
 
-Widget _host({required Future<GroupDetailData> Function() load}) => MaterialApp(
+Widget _host({
+  required Future<GroupDetailData> Function() load,
+  AppUser me = _me,
+  Future<String> Function(String memberId)? removeMember,
+}) => MaterialApp(
   theme: sliceLightTheme(),
-  home: GroupDetailScreen(sdk: null, me: _me, group: _group, loadOverride: load),
+  home: GroupDetailScreen(
+    sdk: null,
+    me: me,
+    group: _group,
+    loadOverride: load,
+    removeMemberOverride: removeMember,
+  ),
 );
+
+/// Opens the member sheet for Sam (m2), who is not the group's owner.
+Future<void> _openSamsSheet(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Sam'));
+  await tester.pumpAndSettle();
+}
+
+GroupDetailData _data({int samNetCents = 0, List<GroupMember> former = const []}) =>
+    GroupDetailData(
+      members: _members,
+      formerMembers: former,
+      balances: [Balance(memberId: 'm2', netCents: samNetCents)],
+      expenses: const <Expense>[],
+      settlements: const <Settlement>[],
+    );
 
 void main() {
   testWidgets('renders the group name, members and its activity', (tester) async {
@@ -87,5 +113,95 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('older'), findsNothing);
+  });
+
+  testWidgets('the owner can remove a settled member', (tester) async {
+    final removed = <String>[];
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(),
+        removeMember: (id) async {
+          removed.add(id);
+          return 'removed';
+        },
+      ),
+    );
+    await _openSamsSheet(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove from group'));
+    await tester.pumpAndSettle();
+    // Removal is confirmed before it happens, never on the first tap.
+    expect(removed, isEmpty);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Remove'));
+    await tester.pumpAndSettle();
+
+    expect(removed, ['m2']);
+  });
+
+  testWidgets('cancelling the confirmation removes nobody', (tester) async {
+    final removed = <String>[];
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(),
+        removeMember: (id) async {
+          removed.add(id);
+          return 'removed';
+        },
+      ),
+    );
+    await _openSamsSheet(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove from group'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(removed, isEmpty);
+  });
+
+  testWidgets('a member who owes money cannot be removed, and is told why', (tester) async {
+    await tester.pumpWidget(_host(load: () async => _data(samNetCents: -1250)));
+    await _openSamsSheet(tester);
+
+    expect(find.widgetWithText(FilledButton, 'Remove from group'), findsNothing);
+    expect(find.textContaining('unsettled balance'), findsOneWidget);
+  });
+
+  testWidgets('a non-owner is offered no removal at all', (tester) async {
+    const notTheOwner = AppUser(id: 'u2', email: 'sam@example.com', name: 'Sam', avatarUrl: '');
+    await tester.pumpWidget(_host(load: () async => _data(), me: notTheOwner));
+    await tester.pumpAndSettle();
+    // Sam is "You" from this account, so open the other card.
+    await tester.tap(find.text('Me'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Remove from group'), findsNothing);
+    expect(find.textContaining('Only the group owner'), findsOneWidget);
+  });
+
+  testWidgets("the group's owner is never removable", (tester) async {
+    await tester.pumpWidget(_host(load: () async => _data()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('You'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Remove from group'), findsNothing);
+    expect(find.textContaining("owner can't be removed"), findsOneWidget);
+  });
+
+  testWidgets('former members stay visible as a muted line', (tester) async {
+    const gone = GroupMember(
+      id: 'm3',
+      groupId: 'g1',
+      userId: 'u3',
+      role: 'member',
+      name: 'Robin',
+      isActive: false,
+    );
+    await tester.pumpWidget(_host(load: () async => _data(former: const [gone])));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Former members: Robin'), findsOneWidget);
   });
 }

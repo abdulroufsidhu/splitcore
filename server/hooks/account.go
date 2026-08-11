@@ -130,23 +130,38 @@ func memberHasLedgerHistory(app core.App, userID string, memberships []*core.Rec
 	}
 
 	for _, m := range memberships {
-		checks := []struct {
-			collection string
-			filter     string
-		}{
-			{"expenses", "payer = {:m}"},
-			{"split_entries", "member = {:m}"},
-			{"settlements", "from_member = {:m} || to_member = {:m}"},
+		referenced, err := memberReferenced(app, m.Id)
+		if err != nil {
+			return false, err
 		}
-		for _, c := range checks {
-			rows, err := app.FindRecordsByFilter(c.collection, c.filter, "", 1, 0,
-				dbx.Params{"m": m.Id})
-			if err != nil {
-				return false, err
-			}
-			if len(rows) > 0 {
-				return true, nil
-			}
+		if referenced {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// memberReferenced reports whether any ledger record points at this
+// group_members row. Those relations are all Required with
+// CascadeDelete=false, so a referenced membership cannot be deleted — the
+// caller has to keep the row and mark it instead.
+func memberReferenced(app core.App, memberID string) (bool, error) {
+	checks := []struct {
+		collection string
+		filter     string
+	}{
+		{"expenses", "payer = {:m}"},
+		{"split_entries", "member = {:m}"},
+		{"settlements", "from_member = {:m} || to_member = {:m}"},
+	}
+	for _, c := range checks {
+		rows, err := app.FindRecordsByFilter(c.collection, c.filter, "", 1, 0,
+			dbx.Params{"m": memberID})
+		if err != nil {
+			return false, err
+		}
+		if len(rows) > 0 {
+			return true, nil
 		}
 	}
 	return false, nil

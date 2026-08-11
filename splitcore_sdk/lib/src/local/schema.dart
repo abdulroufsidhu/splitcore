@@ -9,13 +9,19 @@
 //
 // Money is INTEGER minor units everywhere. SQLite's REAL type must never
 // appear in this file.
-const int schemaVersion = 1;
+const int schemaVersion = 2;
 
 /// The migration ladder, indexed by the version each entry migrates *to*.
 /// `migrations[1]` builds a v0 (empty) database into v1. Adding a column
 /// later means appending `migrations[2]`, never editing this entry — a
 /// shipped migration is immutable.
-const Map<int, List<String>> migrations = {1: _v1};
+const Map<int, List<String>> migrations = {1: _v1, 2: _v2};
+
+/// v2 — `members.removed_at`: the server's marker for a member the owner
+/// removed but whose row had to be kept, because expenses and balances
+/// reference it. Empty means an active member, so every row an older build
+/// wrote reads as active.
+const List<String> _v2 = ["ALTER TABLE members ADD COLUMN removed_at TEXT NOT NULL DEFAULT ''"];
 
 const List<String> _v1 = [
   '''

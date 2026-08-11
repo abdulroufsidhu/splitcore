@@ -252,6 +252,7 @@ class GroupMember {
     required this.role,
     this.name = '',
     this.avatarUrl = '',
+    this.isActive = true,
   });
 
   final String id;
@@ -268,6 +269,15 @@ class GroupMember {
   /// Absolute URL to this member's avatar image, or '' if unset/unresolved.
   final String avatarUrl;
 
+  /// False once the owner has removed them from the group.
+  ///
+  /// A removed member's row is kept whenever they appear in the ledger —
+  /// their expenses and everyone else's balances depend on it — so history
+  /// can still name them. They are simply not part of the group any more:
+  /// [GroupsRepository.listMembers] filters them out, and only the screen
+  /// that lists former members asks for them.
+  final bool isActive;
+
   @override
   bool operator ==(Object other) =>
       other is GroupMember &&
@@ -276,14 +286,16 @@ class GroupMember {
       other.userId == userId &&
       other.role == role &&
       other.name == name &&
-      other.avatarUrl == avatarUrl;
+      other.avatarUrl == avatarUrl &&
+      other.isActive == isActive;
 
   @override
-  int get hashCode => Object.hash(id, groupId, userId, role, name, avatarUrl);
+  int get hashCode => Object.hash(id, groupId, userId, role, name, avatarUrl, isActive);
 
   @override
   String toString() =>
-      'GroupMember(id: $id, groupId: $groupId, userId: $userId, role: $role, name: $name, avatarUrl: $avatarUrl)';
+      'GroupMember(id: $id, groupId: $groupId, userId: $userId, role: $role, name: $name, '
+      'avatarUrl: $avatarUrl, isActive: $isActive)';
 }
 
 /// A created `expenses` record.

@@ -20,11 +20,21 @@ class GroupsRepository {
   Stream<List<GroupMember>> watchMembers(String groupId) =>
       _db.watch({'members'}, () => GroupDao(_db).listMembers(groupId));
 
+  /// Like [watchMembers], but includes members the owner has removed. Only
+  /// the group screen's "former members" line needs these.
+  Stream<List<GroupMember>> watchAllMembers(String groupId) =>
+      _db.watch({'members'}, () => GroupDao(_db).listAllMembers(groupId));
+
   Stream<Group?> watchGroup(String groupId) => _db.watch({'groups'}, () => _groupOrNull(groupId));
 
   /// The current member list, for callers that want one value rather than a
-  /// subscription — the export path, and tests.
+  /// subscription — the export path, and tests. Removed members are left
+  /// out: every caller means "who is in this group now".
   Future<List<GroupMember>> listMembers(String groupId) async => GroupDao(_db).listMembers(groupId);
+
+  /// Everyone who has ever been in the group, removed members included.
+  Future<List<GroupMember>> listAllMembers(String groupId) async =>
+      GroupDao(_db).listAllMembers(groupId);
 
   /// The groups the signed-in user belongs to, from the local mirror.
   Future<List<Group>> listMyGroups() async => GroupDao(_db).listGroups();
@@ -61,9 +71,17 @@ class GroupsRepository {
     return member;
   }
 
-  Future<void> removeMember(String memberId) async {
-    await _api.removeMember(memberId);
+  /// Removes [memberId] from their group and returns what the server did —
+  /// `'removed'` (row deleted) or `'deactivated'` (row kept, marked). See
+  /// [GroupsApi.removeMember] for when each happens and what it throws.
+  ///
+  /// Online-only, like [inviteOrAddMember]: the balance check that gates a
+  /// removal lives on the server, so an optimistic offline removal could
+  /// show someone gone and then be refused when it replayed.
+  Future<String> removeMember(String memberId) async {
+    final status = await _api.removeMember(memberId);
     await _sync.now();
+    return status;
   }
 
   Future<bool> inviteOrAddMember({
