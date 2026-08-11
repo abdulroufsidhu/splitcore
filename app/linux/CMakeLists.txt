@@ -106,6 +106,18 @@ foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
     COMPONENT Runtime)
 endforeach(bundled_library)
 
+# The Go core. Dart's dlopen("libsplitcore.so") is issued from inside
+# libflutter_linux_gtk.so, whose RUNPATH is $ORIGIN — the bundle's lib/ — so
+# the bare soname only resolves if the bundle carries it.
+set(SPLITCORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../splitcore/build/out/linux/libsplitcore.so")
+install(CODE "
+  if(NOT EXISTS \"${SPLITCORE_LIBRARY}\")
+    message(FATAL_ERROR \"libsplitcore.so missing — run 'make native' from the repo root\")
+  endif()
+  " COMPONENT Runtime)
+install(FILES "${SPLITCORE_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/linux/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"

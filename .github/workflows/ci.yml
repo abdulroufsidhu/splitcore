@@ -351,7 +351,6 @@ jobs:
         run: |
           set -euo pipefail
           bundle=app/build/linux/x64/release/bundle
-          cp splitcore/build/out/linux/libsplitcore.so "$bundle/lib/"
           mkdir -p dist
           tar -C "$bundle" -czf \
             "dist/slicepay-${{ needs.gate.outputs.version }}-linux-x64.tar.gz" .
