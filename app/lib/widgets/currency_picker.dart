@@ -3,13 +3,17 @@ import 'package:flutter/material.dart';
 
 import '../money.dart';
 import '../theme.dart';
+import 'adaptive_sheet.dart';
 
-/// Opens a bottom sheet to search & pick an ISO currency code. Returns null
-/// if dismissed without a selection.
+/// Opens a searchable ISO-currency picker — a sheet on a phone, a dialog on
+/// anything wider. Returns null if dismissed without a selection.
 Future<String?> pickCurrency(BuildContext context, String current) {
-  return showModalBottomSheet<String>(
+  return showAdaptiveSheet<String>(
     context: context,
     isScrollControlled: true,
+    // The list is long and sizes itself to a fraction of the window, so it
+    // brings its own scrolling.
+    scrollable: false,
     builder: (context) => _CurrencyPickerSheet(current: current),
   );
 }

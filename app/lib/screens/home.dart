@@ -12,6 +12,7 @@ import '../layout.dart';
 import '../money.dart';
 import '../loadable.dart';
 import '../theme.dart';
+import '../widgets/adaptive_sheet.dart';
 import '../widgets/async_section.dart';
 import '../widgets/avatar.dart';
 import '../widgets/currency_picker.dart';
@@ -399,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final nameController = TextEditingController();
     final emailController = TextEditingController();
     var currency = 'USD';
-    final confirmed = await showModalBottomSheet<bool>(
+    final confirmed = await showAdaptiveSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(
@@ -470,7 +471,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showAccountSheet(BuildContext context) {
-    showModalBottomSheet(
+    showAdaptiveSheet(
       context: context,
       builder: (context) => SafeArea(
         child: Column(
@@ -530,7 +531,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _profileName.text = widget.me.name;
     Uint8List? pickedBytes;
     XFile? pickedFile;
-    final saved = await showModalBottomSheet<bool>(
+    final saved = await showAdaptiveSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(

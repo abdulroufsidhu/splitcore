@@ -16,6 +16,7 @@ import 'package:splitcore_sdk/splitcore_sdk.dart';
 import '../display_name.dart';
 import '../money.dart';
 import '../theme.dart';
+import '../widgets/adaptive_sheet.dart';
 import '../widgets/avatar.dart';
 import '../widgets/money_text.dart';
 import '../widgets/page_body.dart';
@@ -230,7 +231,7 @@ class AddExpenseScreenState extends State<AddExpenseScreen> {
   }
 
   Future<void> _pickReceipt() async {
-    final source = await showModalBottomSheet<ImageSource>(
+    final source = await showAdaptiveSheet<ImageSource>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Column(

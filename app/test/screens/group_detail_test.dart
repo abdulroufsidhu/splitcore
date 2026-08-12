@@ -440,6 +440,83 @@ void main() {
     expect(find.widgetWithText(OutlinedButton, 'Make owner'), findsNothing);
   });
 
+  // ------------------------------------------------------------------
+  // The inspector pane
+  // ------------------------------------------------------------------
+
+  /// Renders the group screen in a window of exactly [size].
+  Future<void> pumpAt(WidgetTester tester, Size size, {List<GroupMember> former = const []}) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(_host(load: () async => _data(former: former)));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('an ultrawide gives the members a column of their own', (tester) async {
+    await pumpAt(tester, const Size(2560, 1400));
+
+    expect(find.text('BALANCES'), findsOneWidget);
+    // Each member appears once, in the column — not once there and once in
+    // the horizontal strip above the expense list.
+    expect(find.text('Sam'), findsOneWidget);
+    expect(find.text('You'), findsOneWidget);
+  });
+
+  testWidgets('a narrower window keeps the horizontal strip and no column', (tester) async {
+    await pumpAt(tester, const Size(1280, 900));
+
+    expect(find.text('BALANCES'), findsNothing);
+    expect(find.text('Sam'), findsOneWidget);
+  });
+
+  testWidgets('former members move into the column rather than doubling up', (tester) async {
+    const gone = GroupMember(
+      id: 'm9',
+      groupId: 'g1',
+      userId: 'u9',
+      role: 'member',
+      name: 'Ana',
+      isActive: false,
+    );
+
+    await pumpAt(tester, const Size(2560, 1400), former: [gone]);
+    expect(find.text('FORMER MEMBERS'), findsOneWidget);
+    expect(find.textContaining('Former members:'), findsNothing);
+
+    await pumpAt(tester, const Size(1280, 900), former: [gone]);
+    expect(find.text('FORMER MEMBERS'), findsNothing);
+    expect(find.textContaining('Former members:'), findsOneWidget);
+  });
+
+  testWidgets('tapping a member in the column opens the same sheet', (tester) async {
+    tester.view.physicalSize = const Size(2560, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final removed = <String>[];
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(),
+        removeMember: (id) async {
+          removed.add(id);
+          return 'removed';
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Sam'));
+    await tester.pumpAndSettle();
+    // Wide enough for the sheet to be a dialog, but it is the same content.
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove from group'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Remove'));
+    await tester.pumpAndSettle();
+
+    expect(removed, ['m2']);
+  });
+
   // An outstanding balance stops a removal but not a handover: transferring
   // moves no money, and it is exactly what an owner who wants out has to do
   // first.

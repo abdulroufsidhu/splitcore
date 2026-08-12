@@ -73,15 +73,21 @@ rather than over one pane.
 Selecting a different group replaces the pane's stack, because the
 Navigator is keyed by group id.
 
-### Screens split in two
+### Screens are not split in two
 
-Each screen that can appear in a pane becomes a route wrapper around a
-view: `GroupDetailScreen` (Scaffold, AppBar, back button) around
-`GroupDetailView` (content). Compact pushes the wrapper; the pane embeds
-the view. The same split applies to add expense, settle up and new group.
+The original plan was a route wrapper (Scaffold, AppBar, back button)
+around a view, with compact pushing the wrapper and the pane embedding the
+view. The nested Navigator made that unnecessary: a `Scaffold` is legal
+inside a pane, so the screen is embedded whole, and the one thing that
+differs is the back arrow. `Navigator.of(context).canPop()` answers that —
+true when a phone pushed the screen, false at the root of a pane, true
+again once Add expense is pushed into it.
 
-The view keeps the state and the test seams, so the existing widget tests
-follow it rather than being rewritten.
+One line instead of splitting four files, with the same result on screen.
+Screens take parameters for the rest: `HomeScreen.onGroupSelected` (report
+the tap instead of pushing), `HomeScreen.showChrome` (the rail is already
+carrying Activity and Account), `HomeScreen.selectedGroupId` (which row
+reads as current).
 
 ## Sheets
 
@@ -111,12 +117,15 @@ the difference between three usable columns and three arbitrary ones.
   every boundary.
 - Widget tests at 320, 400, 700, 1000 and 1800 asserting what appears: the
   rail's presence, the number of panes, and sheet versus dialog.
-- **The existing suite is pinned to a compact surface.** Flutter's default
-  test window is 800×600, which is `medium` under these breakpoints, so
-  every one of the 80 existing tests would silently start rendering the
-  rail and testing a layout it was never written for. Pinning states what
-  each test is actually about instead of letting a breakpoint change
-  rewrite it.
+- Every test that is *about* a layout sets its own window, rather than
+  inheriting Flutter's default 800×600 — a size no phone or desktop
+  actually is.
+
+The predicted breakage of the existing suite did not happen. 800×600 is
+`medium`, but the existing screen tests mount screens directly rather than
+through the shell, so the class only reaches them as a slightly larger
+gutter and title. They were left alone: pinning them to a compact window
+would have asserted a size none of them cares about.
 
 ## Order
 

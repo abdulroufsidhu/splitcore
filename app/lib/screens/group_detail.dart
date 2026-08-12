@@ -12,9 +12,11 @@ import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import '../activity.dart';
 import '../display_name.dart';
+import '../layout.dart';
 import '../loadable.dart';
 import '../money.dart';
 import '../theme.dart';
+import '../widgets/adaptive_sheet.dart';
 import '../widgets/async_section.dart';
 import '../widgets/avatar.dart';
 import '../widgets/money_text.dart';
@@ -214,7 +216,7 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     Expense expense,
     List<GroupMember> members,
   ) async {
-    final action = await showModalBottomSheet<String>(
+    final action = await showAdaptiveSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Column(
@@ -299,6 +301,12 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final slice = context.slice;
+    final size = context.windowSize;
+    final gutter = size.gutter;
+    // On an ultrawide the members and their balances get a column of their
+    // own instead of a horizontal strip the expense list has to scroll
+    // past — the one thing you keep looking back at while reading a ledger.
+    final inspector = size.hasInspectorPane;
     return Scaffold(
       appBar: AppBar(
         // Nothing to go back to when this is the root of a detail pane —
@@ -367,7 +375,7 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
               expenses: searching ? _searchResults! : data.expenses,
               settlements: searching ? const [] : data.settlements,
             );
-            return RefreshIndicator(
+            final page = RefreshIndicator(
               onRefresh: refresh,
               child: PageBody(
                 child: Stack(
@@ -376,11 +384,14 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                          padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 0),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(title, style: pageTitleStyle(slice.ink, size: 24)),
+                              Text(
+                                title,
+                                style: pageTitleStyle(slice.ink, size: size.titleSize - 2),
+                              ),
                               const SizedBox(height: 2),
                               Text(
                                 data.members.map((m) => displayName(m, widget.me)).join(', '),
@@ -389,78 +400,41 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                             ],
                           ),
                         ),
-                        Container(
-                          margin: const EdgeInsets.fromLTRB(20, 14, 20, 16),
-                          padding: EdgeInsets.zero,
-                          decoration: BoxDecoration(
-                            border: Border(bottom: BorderSide(color: slice.border)),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: [
-                                  for (final member in data.members)
-                                    GestureDetector(
-                                      onTap: () => _showMemberSheet(member, data),
-                                      child: Container(
-                                        width: 120,
-                                        margin: const EdgeInsets.only(right: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 10,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: slice.card,
-                                          border: Border.all(color: slice.border),
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              displayName(member, widget.me),
-                                              style: TextStyle(
-                                                fontSize: 11.5,
-                                                fontWeight: FontWeight.w600,
-                                                color: slice.ink,
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            // Rendered for everyone, blank for
-                                            // members, so every card keeps the
-                                            // same height — a Row lays its
-                                            // children out at their own heights,
-                                            // and one taller card would leave the
-                                            // rest visibly misaligned.
-                                            Text(
-                                              member.userId == widget.group.ownerId ? 'OWNER' : '',
-                                              style: TextStyle(
-                                                fontSize: 9,
-                                                letterSpacing: 0.6,
-                                                fontWeight: FontWeight.w700,
-                                                color: slice.muted,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 3),
-                                            MoneyText(
-                                              data.netFor(member.id),
-                                              widget.group.currency,
-                                              size: 16,
-                                            ),
-                                          ],
+                        // Withheld when the inspector pane is carrying the
+                        // same members down the right-hand side — see
+                        // _memberInspector.
+                        if (!inspector)
+                          Container(
+                            margin: EdgeInsets.fromLTRB(gutter, 14, gutter, 16),
+                            padding: EdgeInsets.zero,
+                            decoration: BoxDecoration(
+                              border: Border(bottom: BorderSide(color: slice.border)),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    for (final member in data.members)
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 8),
+                                        child: _MemberCard(
+                                          member: member,
+                                          data: data,
+                                          group: widget.group,
+                                          me: widget.me,
+                                          onTap: () => _showMemberSheet(member, data),
                                         ),
                                       ),
-                                    ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        if (data.formerMembers.isNotEmpty)
+                        if (data.formerMembers.isNotEmpty && !inspector)
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                            padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 10),
                             child: Text(
                               'Former members: '
                               '${data.formerMembers.map((m) => displayName(m, widget.me)).join(', ')}',
@@ -468,7 +442,7 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                             ),
                           ),
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                          padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 8),
                           child: TextField(
                             controller: _searchController,
                             onChanged: _onSearchChanged,
@@ -567,8 +541,8 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                       ],
                     ),
                     Positioned(
-                      left: 20,
-                      right: 20,
+                      left: gutter,
+                      right: gutter,
                       bottom: 24,
                       child: Row(
                         children: [
@@ -618,9 +592,55 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                 ),
               ),
             );
+
+            if (!inspector) return page;
+            return Row(
+              children: [
+                Expanded(child: page),
+                VerticalDivider(width: 1, thickness: 1, color: slice.border),
+                SizedBox(width: size.inspectorPaneWidth, child: _memberInspector(data, slice)),
+              ],
+            );
           },
         ),
       ),
+    );
+  }
+
+  /// The members column that replaces the horizontal strip on an ultrawide.
+  ///
+  /// Same cards, same tap target, same sheet — turned ninety degrees and
+  /// given a column of their own, so the thing you keep glancing back at
+  /// while reading a ledger stays put instead of scrolling away above it.
+  Widget _memberInspector(GroupDetailData data, SliceTheme slice) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        Text('BALANCES', style: sectionLabelStyle(slice.muted)),
+        const SizedBox(height: 10),
+        for (final member in data.members)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _MemberCard(
+              member: member,
+              data: data,
+              group: widget.group,
+              me: widget.me,
+              onTap: () => _showMemberSheet(member, data),
+              // Fills the pane rather than sitting at a strip's width.
+              width: null,
+            ),
+          ),
+        if (data.formerMembers.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Text('FORMER MEMBERS', style: sectionLabelStyle(slice.muted)),
+          const SizedBox(height: 6),
+          Text(
+            data.formerMembers.map((m) => displayName(m, widget.me)).join(', '),
+            style: TextStyle(fontSize: 12, color: slice.muted),
+          ),
+        ],
+      ],
     );
   }
 
@@ -674,7 +694,7 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     // only the owner sees this at all.
     final canTransfer = iAmOwner && !isMe;
 
-    final action = await showModalBottomSheet<String>(
+    final action = await showAdaptiveSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Padding(
@@ -968,7 +988,7 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
 
   Future<void> _showAddMemberSheet(BuildContext context) async {
     final emailController = TextEditingController();
-    final result = await showModalBottomSheet<String>(
+    final result = await showAdaptiveSheet<String>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) => Padding(
@@ -1017,5 +1037,75 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
     }
+  }
+}
+
+/// One member: who they are, whether they own the group, and what they are
+/// up or down by.
+///
+/// The same card serves the horizontal strip on narrow windows and the
+/// inspector column on wide ones, which is why its width is a parameter
+/// rather than a constant — a strip wants uniform cards, a column wants to
+/// fill its pane.
+class _MemberCard extends StatelessWidget {
+  const _MemberCard({
+    required this.member,
+    required this.data,
+    required this.group,
+    required this.me,
+    required this.onTap,
+    this.width = 120,
+  });
+
+  final GroupMember member;
+  final GroupDetailData data;
+  final Group group;
+  final AppUser me;
+  final VoidCallback onTap;
+
+  /// Null fills whatever the parent allows — what the inspector column
+  /// wants. A number is what the horizontal strip wants.
+  final double? width;
+
+  @override
+  Widget build(BuildContext context) {
+    final slice = context.slice;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: width,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: slice.card,
+          border: Border.all(color: slice.border),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              displayName(member, me),
+              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: slice.ink),
+              overflow: TextOverflow.ellipsis,
+            ),
+            // Rendered for everyone, blank for members, so every card keeps
+            // the same height — a Row lays its children out at their own
+            // heights, and one taller card would leave the rest visibly
+            // misaligned.
+            Text(
+              member.userId == group.ownerId ? 'OWNER' : '',
+              style: TextStyle(
+                fontSize: 9,
+                letterSpacing: 0.6,
+                fontWeight: FontWeight.w700,
+                color: slice.muted,
+              ),
+            ),
+            const SizedBox(height: 3),
+            MoneyText(data.netFor(member.id), group.currency, size: 16),
+          ],
+        ),
+      ),
+    );
   }
 }
