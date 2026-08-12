@@ -253,7 +253,13 @@ class AddExpenseScreenState extends State<AddExpenseScreen> {
     );
     if (source == null) return;
     try {
-      final picked = await ImagePicker().pickImage(source: source);
+      // Capped here as well as in the SDK, and for a different reason: the
+      // SDK's compression is pure Dart, so handing it a raw 12MP frame
+      // means decoding ~48MB of pixels on the UI isolate before any of it
+      // can be thrown away. The platform picker does this downscale
+      // natively and cheaply. 2400 stays comfortably above the 1400 the
+      // SDK targets, so it costs nothing in the final image.
+      final picked = await ImagePicker().pickImage(source: source, maxWidth: 2400, maxHeight: 2400);
       if (picked == null) return;
       // The path, not the bytes: the SDK queues receipts by path so the
       // outbox stays a table of small rows rather than a blob store.
