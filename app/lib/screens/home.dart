@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import '../display_name.dart';
+import '../layout.dart';
 import '../money.dart';
 import '../loadable.dart';
 import '../theme.dart';
@@ -53,9 +54,27 @@ class HomeScreen extends StatefulWidget {
     required this.me,
     required this.onSignedOut,
     required this.onProfileUpdated,
+    this.onGroupSelected,
+    this.selectedGroupId,
+    this.showChrome = true,
     this.loadOverride,
     this.updateProfileOverride,
   });
+
+  /// Set by the shell when this list is a pane beside a detail pane: the
+  /// tap reports the group instead of pushing a route on top of the list.
+  /// Null on a phone, where tapping a group *is* navigation.
+  final ValueChanged<Group>? onGroupSelected;
+
+  /// Which row reads as the one on show in the detail pane. Null when
+  /// nothing is selected, and always null on a phone, where the list is
+  /// never on screen next to a group.
+  final String? selectedGroupId;
+
+  /// False when a navigation rail is already carrying Activity and
+  /// Account, so this screen does not draw a second set of the same two
+  /// affordances beside it.
+  final bool showChrome;
 
   /// Null only in widget tests, which supply [loadOverride] instead.
   final SplitcoreSdk? sdk;
@@ -172,6 +191,25 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) _load();
   }
 
+  /// Opening a group means two different things depending on how much room
+  /// there is. On a phone the list *is* the screen, so the group is pushed
+  /// on top of it. Beside a detail pane, pushing would cover the list the
+  /// user is selecting from, so the shell is told instead and swaps what
+  /// the pane shows.
+  Future<void> _openGroup(Group group) async {
+    final select = widget.onGroupSelected;
+    if (select != null) {
+      select(group);
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GroupDetailScreen(sdk: widget.sdk, me: widget.me, group: group),
+      ),
+    );
+    _refresh();
+  }
+
   Map<String, int> _netByCurrency(List<GroupRow> rows) {
     final totals = <String, int>{};
     for (final r in rows) {
@@ -183,6 +221,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final slice = context.slice;
+    final size = context.windowSize;
+    final gutter = size.gutter;
     return Scaffold(
       body: SafeArea(
         child: AsyncSection<List<GroupRow>>(
@@ -198,52 +238,58 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       if (widget.sdk != null) _SyncBanner(sync: widget.sdk!.sync),
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                        padding: EdgeInsets.fromLTRB(gutter, 10, gutter, 4),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('SlicePay', style: pageTitleStyle(slice.ink)),
-                            Row(
-                              children: [
-                                IconButton(
-                                  tooltip: 'Activity',
-                                  icon: Icon(Icons.receipt_long_outlined, color: slice.ink),
-                                  onPressed: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          ActivityScreen(sdk: widget.sdk, me: widget.me),
-                                    ),
-                                  ),
-                                ),
-                                // The avatar is the only affordance for
-                                // reaching account settings, so it needs a
-                                // name and a 48dp target of its own.
-                                Semantics(
-                                  button: true,
-                                  label: 'Account',
-                                  child: GestureDetector(
-                                    onTap: () => _showAccountSheet(context),
-                                    child: Container(
-                                      width: 48,
-                                      height: 48,
-                                      alignment: Alignment.center,
-                                      child: Avatar(
-                                        meInitial(widget.me),
-                                        imageUrl: widget.me.avatarUrl,
-                                        background: slice.ink,
-                                        foreground: slice.paper,
+                            Text(
+                              'SlicePay',
+                              style: pageTitleStyle(slice.ink, size: size.titleSize),
+                            ),
+                            // Withheld when a rail is already offering both
+                            // of these, rather than drawing them twice.
+                            if (widget.showChrome)
+                              Row(
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Activity',
+                                    icon: Icon(Icons.receipt_long_outlined, color: slice.ink),
+                                    onPressed: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            ActivityScreen(sdk: widget.sdk, me: widget.me),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
+                                  // The avatar is the only affordance for
+                                  // reaching account settings, so it needs a
+                                  // name and a 48dp target of its own.
+                                  Semantics(
+                                    button: true,
+                                    label: 'Account',
+                                    child: GestureDetector(
+                                      onTap: () => _showAccountSheet(context),
+                                      child: Container(
+                                        width: 48,
+                                        height: 48,
+                                        alignment: Alignment.center,
+                                        child: Avatar(
+                                          meInitial(widget.me),
+                                          imageUrl: widget.me.avatarUrl,
+                                          background: slice.ink,
+                                          foreground: slice.paper,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                           ],
                         ),
                       ),
                       if (totals.isNotEmpty)
                         Container(
-                          padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+                          padding: EdgeInsets.fromLTRB(gutter, 14, gutter, 18),
                           decoration: BoxDecoration(
                             border: Border(bottom: BorderSide(color: slice.border)),
                           ),
@@ -296,18 +342,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                   itemCount: rows.length,
                                   itemBuilder: (context, i) => _GroupTile(
                                     row: rows[i],
-                                    onTap: () async {
-                                      await Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => GroupDetailScreen(
-                                            sdk: widget.sdk,
-                                            me: widget.me,
-                                            group: rows[i].group,
-                                          ),
-                                        ),
-                                      );
-                                      _refresh();
-                                    },
+                                    selected: rows[i].group.id == widget.selectedGroupId,
+                                    onTap: () => _openGroup(rows[i].group),
                                   ),
                                 ),
                         ),
@@ -315,11 +351,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   Positioned(
-                    left: 20,
-                    right: 20,
+                    left: gutter,
+                    right: gutter,
                     bottom: 24,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    // Wraps rather than overflowing: two pill buttons with
+                    // labels need about 340px, and a folded foldable's
+                    // cover screen is 320.
+                    child: Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 10,
+                      runSpacing: 10,
                       children: [
                         OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(backgroundColor: slice.paper),
@@ -330,7 +371,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           icon: Icon(Icons.person_add_alt_1, color: slice.ink),
                           label: const Text('Add person'),
                         ),
-                        const SizedBox(width: 10),
                         FilledButton.icon(
                           onPressed: () async {
                             await Navigator.of(context).push(
@@ -561,10 +601,14 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _GroupTile extends StatelessWidget {
-  const _GroupTile({required this.row, required this.onTap});
+  const _GroupTile({required this.row, required this.onTap, this.selected = false});
 
   final GroupRow row;
   final VoidCallback onTap;
+
+  /// True for the group currently showing in the detail pane. Always false
+  /// on a phone, where the list is never on screen beside a group.
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -575,8 +619,9 @@ class _GroupTile extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        padding: EdgeInsets.symmetric(horizontal: context.gutter, vertical: 18),
         decoration: BoxDecoration(
+          color: selected ? slice.chip : null,
           border: Border(bottom: BorderSide(color: slice.border)),
         ),
         child: Row(

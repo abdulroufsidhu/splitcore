@@ -9,8 +9,8 @@ import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import 'config.dart';
 import 'connectivity.dart';
-import 'screens/home.dart';
 import 'screens/login.dart';
+import 'screens/shell.dart';
 import 'theme.dart';
 
 /// Bare soname on Android/iOS (resolved from the app's bundled native libs
@@ -167,7 +167,7 @@ class _SlicePayAppState extends State<SlicePayApp> with WidgetsBindingObserver {
                   },
                 );
               }
-              return HomeScreen(
+              return AppShell(
                 sdk: sdk,
                 me: user,
                 onSignedOut: () => _signOut(sdk),

@@ -301,7 +301,11 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     final slice = context.slice;
     return Scaffold(
       appBar: AppBar(
-        leading: const BackButton(),
+        // Nothing to go back to when this is the root of a detail pane —
+        // the group list is beside it, not behind it. Pushing Add expense
+        // into the pane makes canPop true again, and the arrow returns.
+        leading: Navigator.of(context).canPop() ? const BackButton() : null,
+        automaticallyImplyLeading: false,
         actions: [
           IconButton(
             tooltip: 'Add member',
