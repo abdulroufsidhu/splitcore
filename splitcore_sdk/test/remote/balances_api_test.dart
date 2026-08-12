@@ -51,36 +51,39 @@ void main() {
     payer = members.firstWhere((m) => m.userId == ownerUser.id);
   });
 
-  test('reads the server-cached balances after an expense mutates them, matching an independent local recompute', () async {
-    await expensesApi.createExpense(
-      groupId: group.id,
-      payerMemberId: payer.id,
-      description: 'Taxi',
-      date: DateTime.utc(2026, 7, 1),
-      split: SplitSpec.equal(totalCents: 1000, memberIds: [payer.id, other.id]),
-    );
+  test(
+    'reads the server-cached balances after an expense mutates them, matching an independent local recompute',
+    () async {
+      await expensesApi.createExpense(
+        groupId: group.id,
+        payerMemberId: payer.id,
+        description: 'Taxi',
+        date: DateTime.utc(2026, 7, 1),
+        split: SplitSpec.equal(totalCents: 1000, memberIds: [payer.id, other.id]),
+      );
 
-    final serverBalances = await balancesApi.getBalances(group.id);
+      final serverBalances = await balancesApi.getBalances(group.id);
 
-    final localBalances = await calc.computeBalances(
-      expenses: [
-        ExpenseInput(
-          payerId: payer.id,
-          amountCents: 1000,
-          splits: [
-            Split(memberId: payer.id, amountCents: 500),
-            Split(memberId: other.id, amountCents: 500),
-          ],
-        ),
-      ],
-      settlements: const [],
-    );
+      final localBalances = await calc.computeBalances(
+        expenses: [
+          ExpenseInput(
+            payerId: payer.id,
+            amountCents: 1000,
+            splits: [
+              Split(memberId: payer.id, amountCents: 500),
+              Split(memberId: other.id, amountCents: 500),
+            ],
+          ),
+        ],
+        settlements: const [],
+      );
 
-    Map<String, int> byMember(List<Balance> balances) => {
-          for (final b in balances) b.memberId: b.netCents,
-        };
-    expect(byMember(serverBalances), byMember(localBalances));
-  });
+      Map<String, int> byMember(List<Balance> balances) => {
+        for (final b in balances) b.memberId: b.netCents,
+      };
+      expect(byMember(serverBalances), byMember(localBalances));
+    },
+  );
 
   test('returns an empty list for a group with no expenses yet', () async {
     final balances = await balancesApi.getBalances(group.id);

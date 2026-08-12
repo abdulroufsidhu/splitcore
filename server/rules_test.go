@@ -18,7 +18,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 
-	"github.com/abdulroufsidhu/slice_pay/server/internal/testfix"
+	"github.com/abdulroufsidhu/splitcore/server/internal/testfix"
 )
 
 // newOutsider creates and saves a third user (carol) who is authenticated

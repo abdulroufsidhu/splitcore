@@ -51,9 +51,7 @@ void main() {
         Balance(memberId: 'b', netCents: -500),
       ]);
 
-      expect(transfers, [
-        const Transfer(fromMemberId: 'b', toMemberId: 'a', amountCents: 500),
-      ]);
+      expect(transfers, [const Transfer(fromMemberId: 'b', toMemberId: 'a', amountCents: 500)]);
     });
   });
 
@@ -75,10 +73,7 @@ void main() {
 
       final total = balances.fold<int>(0, (sum, b) => sum + b.netCents);
       expect(total, 0);
-      expect(
-        balances.firstWhere((b) => b.memberId == 'b').netCents,
-        -500,
-      );
+      expect(balances.firstWhere((b) => b.memberId == 'b').netCents, -500);
     });
   });
 

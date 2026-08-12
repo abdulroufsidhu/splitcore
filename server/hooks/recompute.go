@@ -7,8 +7,8 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 
-	"github.com/abdulroufsidhu/slice_pay/splitcore/balance"
-	"github.com/abdulroufsidhu/slice_pay/splitcore/money"
+	"github.com/abdulroufsidhu/splitcore/splitcore/balance"
+	"github.com/abdulroufsidhu/splitcore/splitcore/money"
 )
 
 // bumpAndRecompute increments the group's version and rewrites its
@@ -23,6 +23,25 @@ func bumpAndRecompute(app core.App, groupID string) error {
 	return app.RunInTransaction(func(txApp core.App) error {
 		return bumpAndRecomputeTx(txApp, groupID)
 	})
+}
+
+// bumpVersion increments a group's version without recomputing balances,
+// for changes that alter what clients must re-fetch but not what anybody
+// owes. A group already gone (its own delete is cascading into this row
+// right now) is a no-op, same as bumpAndRecomputeTx.
+func bumpVersion(app core.App, groupID string) error {
+	if groupID == "" {
+		return nil
+	}
+	group, err := app.FindRecordById("groups", groupID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	group.Set("version", group.GetInt("version")+1)
+	return app.Save(group)
 }
 
 func bumpAndRecomputeTx(app core.App, groupID string) error {

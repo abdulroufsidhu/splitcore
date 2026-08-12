@@ -54,19 +54,12 @@ class SplitSpec {
   const SplitSpec._(this.type, this.totalCents, this.entries);
 
   factory SplitSpec.equal({required int totalCents, required List<String> memberIds}) =>
-      SplitSpec._(
-        'equal',
-        totalCents,
-        [for (final id in memberIds) EqualSplitEntry(memberId: id)],
-      );
+      SplitSpec._('equal', totalCents, [for (final id in memberIds) EqualSplitEntry(memberId: id)]);
 
   factory SplitSpec.exact({required int totalCents, required List<ExactSplitEntry> entries}) =>
       SplitSpec._('exact', totalCents, entries);
 
-  factory SplitSpec.percent({
-    required int totalCents,
-    required List<PercentSplitEntry> entries,
-  }) =>
+  factory SplitSpec.percent({required int totalCents, required List<PercentSplitEntry> entries}) =>
       SplitSpec._('percent', totalCents, entries);
 
   factory SplitSpec.shares({required int totalCents, required List<ShareSplitEntry> entries}) =>
@@ -77,10 +70,10 @@ class SplitSpec {
   final List<SplitRequestEntry> entries;
 
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'total_cents': totalCents,
-        'entries': [for (final e in entries) e.toJson()],
-      };
+    'type': type,
+    'total_cents': totalCents,
+    'entries': [for (final e in entries) e.toJson()],
+  };
 }
 
 /// A resolved split-line, returned by ComputeSplits and consumed by
@@ -136,17 +129,20 @@ class Transfer {
   const Transfer({required this.fromMemberId, required this.toMemberId, required this.amountCents});
 
   factory Transfer.fromJson(Map<String, dynamic> json) => Transfer(
-        fromMemberId: json['from_member_id'] as String,
-        toMemberId: json['to_member_id'] as String,
-        amountCents: json['amount_cents'] as int,
-      );
+    fromMemberId: json['from_member_id'] as String,
+    toMemberId: json['to_member_id'] as String,
+    amountCents: json['amount_cents'] as int,
+  );
 
   final String fromMemberId;
   final String toMemberId;
   final int amountCents;
 
-  Map<String, dynamic> toJson() =>
-      {'from_member_id': fromMemberId, 'to_member_id': toMemberId, 'amount_cents': amountCents};
+  Map<String, dynamic> toJson() => {
+    'from_member_id': fromMemberId,
+    'to_member_id': toMemberId,
+    'amount_cents': amountCents,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -172,10 +168,10 @@ class ExpenseInput {
   final List<Split> splits;
 
   Map<String, dynamic> toJson() => {
-        'payer_id': payerId,
-        'amount_cents': amountCents,
-        'splits': [for (final s in splits) s.toJson()],
-      };
+    'payer_id': payerId,
+    'amount_cents': amountCents,
+    'splits': [for (final s in splits) s.toJson()],
+  };
 }
 
 /// A signed-in (or signed-up) PocketBase `users` record, exposed instead of
@@ -256,6 +252,7 @@ class GroupMember {
     required this.role,
     this.name = '',
     this.avatarUrl = '',
+    this.isActive = true,
   });
 
   final String id;
@@ -272,6 +269,15 @@ class GroupMember {
   /// Absolute URL to this member's avatar image, or '' if unset/unresolved.
   final String avatarUrl;
 
+  /// False once the owner has removed them from the group.
+  ///
+  /// A removed member's row is kept whenever they appear in the ledger —
+  /// their expenses and everyone else's balances depend on it — so history
+  /// can still name them. They are simply not part of the group any more:
+  /// [GroupsRepository.listMembers] filters them out, and only the screen
+  /// that lists former members asks for them.
+  final bool isActive;
+
   @override
   bool operator ==(Object other) =>
       other is GroupMember &&
@@ -280,14 +286,16 @@ class GroupMember {
       other.userId == userId &&
       other.role == role &&
       other.name == name &&
-      other.avatarUrl == avatarUrl;
+      other.avatarUrl == avatarUrl &&
+      other.isActive == isActive;
 
   @override
-  int get hashCode => Object.hash(id, groupId, userId, role, name, avatarUrl);
+  int get hashCode => Object.hash(id, groupId, userId, role, name, avatarUrl, isActive);
 
   @override
   String toString() =>
-      'GroupMember(id: $id, groupId: $groupId, userId: $userId, role: $role, name: $name, avatarUrl: $avatarUrl)';
+      'GroupMember(id: $id, groupId: $groupId, userId: $userId, role: $role, name: $name, '
+      'avatarUrl: $avatarUrl, isActive: $isActive)';
 }
 
 /// A created `expenses` record.
@@ -300,6 +308,8 @@ class Expense {
     required this.amountCents,
     required this.splitType,
     required this.date,
+    this.updated,
+    this.pending = false,
   });
 
   final String id;
@@ -310,6 +320,18 @@ class Expense {
   final String splitType;
   final DateTime date;
 
+  /// The server's own `updated` stamp, or null for a row created locally
+  /// that the server has not seen yet. This is the base a queued edit is
+  /// measured against: if the server's stamp has moved by the time the edit
+  /// is replayed, somebody else changed the expense and the edit parks as a
+  /// conflict rather than overwriting them.
+  final DateTime? updated;
+
+  /// True while a write to this expense is still queued in the outbox. The
+  /// UI greys such a row: the numbers are real and local, but nobody else
+  /// can see them yet.
+  final bool pending;
+
   @override
   bool operator ==(Object other) =>
       other is Expense &&
@@ -319,11 +341,22 @@ class Expense {
       other.description == description &&
       other.amountCents == amountCents &&
       other.splitType == splitType &&
-      other.date == date;
+      other.date == date &&
+      other.updated == updated &&
+      other.pending == pending;
 
   @override
-  int get hashCode =>
-      Object.hash(id, groupId, payerMemberId, description, amountCents, splitType, date);
+  int get hashCode => Object.hash(
+    id,
+    groupId,
+    payerMemberId,
+    description,
+    amountCents,
+    splitType,
+    date,
+    updated,
+    pending,
+  );
 
   @override
   String toString() =>
@@ -438,6 +471,37 @@ class SettlementInput {
   final String toMemberId;
   final int amountCents;
 
-  Map<String, dynamic> toJson() =>
-      {'from_member_id': fromMemberId, 'to_member_id': toMemberId, 'amount_cents': amountCents};
+  Map<String, dynamic> toJson() => {
+    'from_member_id': fromMemberId,
+    'to_member_id': toMemberId,
+    'amount_cents': amountCents,
+  };
+}
+
+/// One page of a listing, with enough metadata for a UI to decide whether
+/// to fetch the next one. Returned instead of a bare List so a caller
+/// physically cannot ask for "all rows" by accident.
+class Page<T> {
+  const Page({
+    required this.items,
+    required this.page,
+    required this.perPage,
+    required this.totalItems,
+    required this.totalPages,
+  });
+
+  /// The empty case — a group with no expenses yet.
+  const Page.empty({this.perPage = 50})
+    : items = const [],
+      page = 1,
+      totalItems = 0,
+      totalPages = 0;
+
+  final List<T> items;
+  final int page;
+  final int perPage;
+  final int totalItems;
+  final int totalPages;
+
+  bool get hasMore => page < totalPages;
 }

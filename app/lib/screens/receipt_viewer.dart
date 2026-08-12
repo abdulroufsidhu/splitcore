@@ -30,6 +30,7 @@ class ReceiptViewerScreen extends StatelessWidget {
               child: Row(
                 children: [
                   IconButton(
+                    tooltip: 'Close receipt',
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close, color: Colors.white),
                   ),
@@ -38,7 +39,11 @@ class ReceiptViewerScreen extends StatelessWidget {
                       children: [
                         Text(
                           description,
-                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5, color: Colors.white),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14.5,
+                            color: Colors.white,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         Text(

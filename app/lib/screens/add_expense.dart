@@ -8,7 +8,6 @@
 // (SplitSpec.exact/.percent/.shares) — this file only had to stop hardcoding
 // SplitSpec.equal for every tab.
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart' hide Split;
 import 'package:image_picker/image_picker.dart';
@@ -17,6 +16,7 @@ import 'package:splitcore_sdk/splitcore_sdk.dart';
 import '../display_name.dart';
 import '../money.dart';
 import '../theme.dart';
+import '../widgets/adaptive_sheet.dart';
 import '../widgets/avatar.dart';
 import '../widgets/money_text.dart';
 import '../widgets/page_body.dart';
@@ -30,32 +30,70 @@ class AddExpenseScreen extends StatefulWidget {
     required this.group,
     required this.members,
     required this.me,
+    this.existing,
+    this.existingSplits,
   });
 
-  final SplitcoreSdk sdk;
+  /// Null only in widget tests, which never reach a save.
+  final SplitcoreSdk? sdk;
   final Group group;
   final List<GroupMember> members;
   final AppUser me;
 
+  /// The expense being edited, or null when creating a new one. Editing
+  /// reuses this whole screen — the split editor and live preview are the
+  /// same either way, and a second screen would duplicate 500 lines.
+  final Expense? existing;
+
+  /// [existing]'s current split entries: which members are involved, and
+  /// for an exact split, their amounts.
+  final List<SplitEntry>? existingSplits;
+
+  bool get isEditing => existing != null;
+
   @override
-  State<AddExpenseScreen> createState() => _AddExpenseScreenState();
+  State<AddExpenseScreen> createState() => AddExpenseScreenState();
 }
 
-class _AddExpenseScreenState extends State<AddExpenseScreen> {
+class AddExpenseScreenState extends State<AddExpenseScreen> {
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
   _SplitType _splitType = _SplitType.equal;
-  late String _payerMemberId = memberFor(widget.members, widget.me.id)?.id ??
+  late String _payerMemberId =
+      widget.existing?.payerMemberId ??
+      memberFor(widget.members, widget.me.id)?.id ??
       (widget.members.isNotEmpty ? widget.members.first.id : '');
+
+  /// Test-only view of who the screen thinks paid.
+  @visibleForTesting
+  String get debugPayerMemberId => _payerMemberId;
   final Map<String, TextEditingController> _exactControllers = {};
   final Map<String, TextEditingController> _percentControllers = {};
   final Map<String, TextEditingController> _shareControllers = {};
   List<Split> _preview = [];
-  Uint8List? _receiptBytes;
+  String? _receiptPath;
   bool _saving = false;
   String? _error;
   Timer? _previewDebounce;
   int _previewRequest = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existing;
+    if (existing == null) return;
+    _descriptionController.text = existing.description;
+    _amountController.text = formatAmountForEditing(existing.amountCents);
+    _splitType = _SplitType.values.firstWhere(
+      (t) => t.name == existing.splitType,
+      orElse: () => _SplitType.equal,
+    );
+    for (final entry in widget.existingSplits ?? const <SplitEntry>[]) {
+      _exactControllers[entry.memberId] = TextEditingController(
+        text: formatAmountForEditing(entry.amountCents),
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -137,7 +175,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         return SplitSpec.shares(
           totalCents: _totalCents,
           entries: [
-            for (final id in memberIds) ShareSplitEntry(memberId: id, shares: _sharesOf(_shareControllers[id])),
+            for (final id in memberIds)
+              ShareSplitEntry(memberId: id, shares: _sharesOf(_shareControllers[id])),
           ],
         );
     }
@@ -156,8 +195,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         }
         return null;
       case _SplitType.percent:
-        final sum = widget.members.fold<int>(0, (s, m) => s + _basisPointsOf(_percentControllers[m.id]));
-        if (sum != 10000) return 'Percentages must add up to 100% (currently ${(sum / 100).toStringAsFixed(2)}%).';
+        final sum = widget.members.fold<int>(
+          0,
+          (s, m) => s + _basisPointsOf(_percentControllers[m.id]),
+        );
+        if (sum != 10000) {
+          return 'Percentages must add up to 100% (currently ${(sum / 100).toStringAsFixed(2)}%).';
+        }
         return null;
       case _SplitType.shares:
         final anyInvalid = widget.members.any((m) => _sharesOf(_shareControllers[m.id]) < 1);
@@ -182,12 +226,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     // Requests can complete out of order (isolate hop); only the latest
     // request's result is allowed to land.
     final request = ++_previewRequest;
-    final splits = await widget.sdk.previewSplit(_buildSpec());
+    final splits = await widget.sdk!.previewSplit(_buildSpec());
     if (mounted && request == _previewRequest) setState(() => _preview = splits);
   }
 
   Future<void> _pickReceipt() async {
-    final source = await showModalBottomSheet<ImageSource>(
+    final source = await showAdaptiveSheet<ImageSource>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Column(
@@ -211,11 +255,14 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     try {
       final picked = await ImagePicker().pickImage(source: source);
       if (picked == null) return;
-      final bytes = await picked.readAsBytes();
-      setState(() => _receiptBytes = bytes);
+      // The path, not the bytes: the SDK queues receipts by path so the
+      // outbox stays a table of small rows rather than a blob store.
+      setState(() => _receiptPath = picked.path);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Couldn't attach receipt: $e")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Couldn't attach receipt: $e")));
     }
   }
 
@@ -234,17 +281,29 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       _error = null;
     });
     try {
-      final expense = await widget.sdk.expenses.createExpense(
-        groupId: widget.group.id,
-        payerMemberId: _payerMemberId,
-        description: _descriptionController.text.trim(),
-        date: DateTime.now(),
-        split: _buildSpec(),
-      );
-      if (_receiptBytes != null) {
-        final entries = await widget.sdk.expenses.listSplitEntries(expense.id);
+      final existing = widget.existing;
+      final expense = existing == null
+          ? await widget.sdk!.expenses.createExpense(
+              groupId: widget.group.id,
+              payerMemberId: _payerMemberId,
+              description: _descriptionController.text.trim(),
+              date: DateTime.now(),
+              split: _buildSpec(),
+            )
+          : await widget.sdk!.expenses.updateExpense(
+              expenseId: existing.id,
+              payerMemberId: _payerMemberId,
+              description: _descriptionController.text.trim(),
+              date: existing.date,
+              split: _buildSpec(),
+            );
+      final receiptPath = _receiptPath;
+      if (receiptPath != null) {
+        final entries = await widget.sdk!.expenses.listSplitEntries(expense.id);
         if (entries.isNotEmpty) {
-          await widget.sdk.expenses.attachReceipt(entries.first.id, _receiptBytes!);
+          // Queued, not uploaded: saving must not fail because there is no
+          // connection, and the expense is already safe locally.
+          await widget.sdk!.expenses.attachReceiptFile(entries.first.id, receiptPath);
         }
       }
       if (mounted) Navigator.of(context).pop();
@@ -266,145 +325,169 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text('Cancel', style: TextStyle(color: slice.muted)),
         ),
-        title: const Text('New expense'),
+        title: Text(widget.isEditing ? 'Edit expense' : 'New expense'),
         actions: [
           TextButton(
             onPressed: (_saving || splitError != null) ? null : _save,
-            child: Text('Save', style: TextStyle(color: _saving ? slice.muted : slice.positive, fontWeight: FontWeight.w700)),
+            child: Text(
+              'Save',
+              style: TextStyle(
+                color: _saving ? slice.muted : slice.positive,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
       body: SafeArea(
         child: PageBody(
           child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Column(
                     children: [
-                      Text(currencySymbol(widget.group.currency), style: moneyStyle(size: 34, color: slice.muted)),
-                      IntrinsicWidth(
-                        child: TextField(
-                          controller: _amountController,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          style: moneyStyle(size: 40, color: slice.ink),
-                          textAlign: TextAlign.center,
-                          decoration: const InputDecoration(border: InputBorder.none, hintText: '0.00'),
-                          onChanged: (_) => _schedulePreview(),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            currencySymbol(widget.group.currency),
+                            style: moneyStyle(size: 34, color: slice.muted),
+                          ),
+                          IntrinsicWidth(
+                            child: TextField(
+                              controller: _amountController,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              style: moneyStyle(size: 40, color: slice.ink),
+                              textAlign: TextAlign.center,
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                hintText: '0.00',
+                              ),
+                              onChanged: (_) => _schedulePreview(),
+                            ),
+                          ),
+                        ],
+                      ),
+                      TextField(
+                        controller: _descriptionController,
+                        textAlign: TextAlign.center,
+                        decoration: const InputDecoration(
+                          border: UnderlineInputBorder(),
+                          hintText: 'Description',
                         ),
                       ),
                     ],
                   ),
-                  TextField(
-                    controller: _descriptionController,
-                    textAlign: TextAlign.center,
-                    decoration: const InputDecoration(border: UnderlineInputBorder(), hintText: 'Description'),
+                ),
+                const SizedBox(height: 16),
+                Text('PAID BY', style: sectionLabelStyle(slice.muted)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final m in widget.members)
+                      ChoiceChip(
+                        label: Text(displayName(m, widget.me)),
+                        selected: _payerMemberId == m.id,
+                        onSelected: (_) => setState(() => _payerMemberId = m.id),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Text('SPLIT', style: sectionLabelStyle(slice.muted)),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: slice.chip,
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text('PAID BY', style: sectionLabelStyle(slice.muted)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final m in widget.members)
-                  ChoiceChip(
-                    label: Text(displayName(m, widget.me)),
-                    selected: _payerMemberId == m.id,
-                    onSelected: (_) => setState(() => _payerMemberId = m.id),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Text('SPLIT', style: sectionLabelStyle(slice.muted)),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(color: slice.chip, borderRadius: BorderRadius.circular(10)),
-              child: Row(
-                children: [
-                  for (final type in _SplitType.values)
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _splitType = type;
-                            _seedSplitControllers(type);
-                          });
-                          _updatePreview();
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: BoxDecoration(
-                            color: _splitType == type ? slice.card : null,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            _label(type),
-                            style: TextStyle(
-                              fontWeight: _splitType == type ? FontWeight.w700 : FontWeight.w600,
-                              fontSize: 13,
-                              color: _splitType == type ? slice.ink : slice.muted,
+                  child: Row(
+                    children: [
+                      for (final type in _SplitType.values)
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _splitType = type;
+                                _seedSplitControllers(type);
+                              });
+                              _updatePreview();
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: _splitType == type ? slice.card : null,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                _label(type),
+                                style: TextStyle(
+                                  fontWeight: _splitType == type
+                                      ? FontWeight.w700
+                                      : FontWeight.w600,
+                                  fontSize: 13,
+                                  color: _splitType == type ? slice.ink : slice.muted,
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            _splitType == _SplitType.equal ? _equalPreview(slice) : _editableSplitRows(slice),
-            if (splitError != null) ...[
-              const SizedBox(height: 8),
-              Text(splitError, style: TextStyle(fontSize: 12, color: slice.negative)),
-            ],
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Text('RECEIPT', style: sectionLabelStyle(slice.muted)),
-                const SizedBox(width: 6),
-                Text('(optional)', style: TextStyle(fontSize: 11, color: slice.muted)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            GestureDetector(
-              onTap: _pickReceipt,
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  border: Border.all(color: slice.border, style: BorderStyle.solid),
-                  borderRadius: BorderRadius.circular(10),
+                    ],
+                  ),
                 ),
-                child: Row(
+                const SizedBox(height: 10),
+                _splitType == _SplitType.equal ? _equalPreview(slice) : _editableSplitRows(slice),
+                if (splitError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(splitError, style: TextStyle(fontSize: 12, color: slice.negative)),
+                ],
+                const SizedBox(height: 18),
+                Row(
                   children: [
-                    Icon(Icons.camera_alt_outlined, size: 18, color: slice.ink),
-                    const SizedBox(width: 8),
-                    Text(
-                      _receiptBytes == null ? 'Attach receipt' : 'Receipt attached · retake',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5, color: slice.ink),
-                    ),
+                    Text('RECEIPT', style: sectionLabelStyle(slice.muted)),
+                    const SizedBox(width: 6),
+                    Text('(optional)', style: TextStyle(fontSize: 11, color: slice.muted)),
                   ],
                 ),
-              ),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: _pickReceipt,
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: slice.border, style: BorderStyle.solid),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.camera_alt_outlined, size: 18, color: slice.ink),
+                        const SizedBox(width: 8),
+                        Text(
+                          _receiptPath == null ? 'Attach receipt' : 'Receipt attached · retake',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13.5,
+                            color: slice.ink,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_error!, style: TextStyle(color: slice.negative)),
+                ],
+                const SizedBox(height: 40),
+              ],
             ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: TextStyle(color: slice.negative)),
-            ],
-            const SizedBox(height: 40),
-          ],
-        ),
           ),
         ),
       ),
@@ -436,7 +519,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                       style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: slice.ink),
                     ),
                   ),
-                  MoneyText(split.amountCents, widget.group.currency, signed: false, size: 14, weight: FontWeight.w500),
+                  MoneyText(
+                    split.amountCents,
+                    widget.group.currency,
+                    signed: false,
+                    size: 14,
+                    weight: FontWeight.w500,
+                  ),
                 ],
               ),
             ),
@@ -484,7 +573,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                     width: 90,
                     child: TextField(
                       controller: controllers[m.id],
-                      keyboardType: TextInputType.numberWithOptions(decimal: _splitType != _SplitType.shares),
+                      keyboardType: TextInputType.numberWithOptions(
+                        decimal: _splitType != _SplitType.shares,
+                      ),
                       textAlign: TextAlign.right,
                       style: moneyStyle(size: 14, weight: FontWeight.w500, color: slice.ink),
                       decoration: InputDecoration(
@@ -504,11 +595,11 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   }
 
   String _label(_SplitType type) => switch (type) {
-        _SplitType.equal => 'Equal',
-        _SplitType.exact => 'Exact',
-        _SplitType.percent => '%',
-        _SplitType.shares => 'Shares',
-      };
+    _SplitType.equal => 'Equal',
+    _SplitType.exact => 'Exact',
+    _SplitType.percent => '%',
+    _SplitType.shares => 'Shares',
+  };
 
   String _memberDisplayName(String memberId) {
     final member = widget.members.where((m) => m.id == memberId);

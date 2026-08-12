@@ -5,6 +5,7 @@
 import 'package:pocketbase/pocketbase.dart';
 
 import '../models.dart';
+import 'filters.dart';
 
 class BalancesApi {
   BalancesApi(this._pb);
@@ -12,7 +13,7 @@ class BalancesApi {
   final PocketBase _pb;
 
   Future<List<Balance>> getBalances(String groupId) async {
-    final records = await _pb.collection('balances').getFullList(filter: "group = '$groupId'");
+    final records = await _pb.collection('balances').getFullList(filter: byGroup(_pb, groupId));
     return [
       for (final r in records)
         Balance(memberId: r.getStringValue('member'), netCents: r.getIntValue('net_cents')),

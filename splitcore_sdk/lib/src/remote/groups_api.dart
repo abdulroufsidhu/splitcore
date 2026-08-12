@@ -11,10 +11,14 @@ class GroupsApi {
 
   final PocketBase _pb;
 
-  Future<Group> createGroup({required String name, required String currency, bool isDirect = false}) async {
-    final record = await _pb.collection('groups').create(
-      body: {'name': name, 'currency': currency, 'is_direct': isDirect},
-    );
+  Future<Group> createGroup({
+    required String name,
+    required String currency,
+    bool isDirect = false,
+  }) async {
+    final record = await _pb
+        .collection('groups')
+        .create(body: {'name': name, 'currency': currency, 'is_direct': isDirect});
     return _groupFromRecord(record);
   }
 
@@ -46,6 +50,7 @@ class GroupsApi {
           role: m['role'] as String? ?? 'member',
           name: m['name'] as String? ?? '',
           avatarUrl: _avatarUrl(m['user'] as String? ?? '', m['avatar'] as String? ?? ''),
+          isActive: (m['removed_at'] as String? ?? '').isEmpty,
         ),
     ];
   }
@@ -58,13 +63,72 @@ class GroupsApi {
     required String userId,
     required String role,
   }) async {
-    final record = await _pb.collection('group_members').create(
-      body: {'group': groupId, 'user': userId, 'role': role},
-    );
+    final record = await _pb
+        .collection('group_members')
+        .create(body: {'group': groupId, 'user': userId, 'role': role});
     return _memberFromRecord(record);
   }
 
-  Future<void> removeMember(String memberId) => _pb.collection('group_members').delete(memberId);
+  /// Takes [memberId] out of their group, and reports what the server
+  /// actually did.
+  ///
+  /// Doubles as "leave this group": naming your own membership is allowed
+  /// without owning the group. Same row, same rules, same two outcomes —
+  /// only who may ask differs.
+  ///
+  ///  * `'removed'` — they appear nowhere in the ledger, so the membership
+  ///    row was deleted outright and no trace is left.
+  ///  * `'deactivated'` — they appear in expenses or settlements, so the row
+  ///    had to stay for everyone else's balances to remain correct. They are
+  ///    marked removed instead, and drop out of every member list.
+  ///
+  /// Throws when the server refuses — notably while the member's balance is
+  /// non-zero (settle up first), when they are the group's owner (owners
+  /// hand a group over or delete it, they do not walk out of it), or when
+  /// the caller neither owns the group nor is the member in question. Goes through
+  /// /api/splitcore/remove-member rather than a plain delete because that
+  /// choice cannot be made client-side (see server/hooks/remove_member.go).
+  Future<String> removeMember(String memberId) async {
+    final response = await _pb.send<Map<String, dynamic>>(
+      '/api/splitcore/remove-member',
+      method: 'POST',
+      body: {'member_id': memberId},
+    );
+    return response['status'] as String? ?? 'removed';
+  }
+
+  /// Deletes [groupId] and everything in it — for every member, not just
+  /// the caller.
+  ///
+  /// A plain collection delete, because the server already does the work:
+  /// the delete rule limits it to the group's owner, and
+  /// OnRecordDelete("groups") both refuses while anybody's balance is
+  /// non-zero and orders the cascade so the group's expenses, splits,
+  /// settlements, balances, invites and memberships all go with it (see
+  /// server/hooks/hooks.go).
+  ///
+  /// Throws a 400 while money is outstanding, and a 404 when the caller
+  /// does not own the group.
+  Future<void> deleteGroup(String groupId) => _pb.collection('groups').delete(groupId);
+
+  /// Hands [groupId] to [memberId] and demotes the caller to a regular
+  /// member. Returns the server's status string, `'transferred'`.
+  ///
+  /// Goes through /api/splitcore/transfer-ownership because `groups.owner`
+  /// is deliberately unwritable by clients — the update hook restores the
+  /// stored owner on every PATCH (see server/hooks/hooks.go).
+  ///
+  /// Throws when the caller does not own the group (404), when the member
+  /// belongs to another group (404), and when they have been removed from
+  /// it or already own it (400).
+  Future<String> transferOwnership({required String groupId, required String memberId}) async {
+    final response = await _pb.send<Map<String, dynamic>>(
+      '/api/splitcore/transfer-ownership',
+      method: 'POST',
+      body: {'group_id': groupId, 'member_id': memberId},
+    );
+    return response['status'] as String? ?? 'transferred';
+  }
 
   /// Adds [email] to [groupId] if they already have an account, or records
   /// a pending invite that auto-joins them the moment they sign up with
@@ -85,18 +149,18 @@ class GroupsApi {
   }
 
   Group _groupFromRecord(RecordModel record) => Group(
-        id: record.id,
-        name: record.getStringValue('name'),
-        currency: record.getStringValue('currency'),
-        version: record.getIntValue('version'),
-        ownerId: record.getStringValue('owner'),
-        isDirect: record.getBoolValue('is_direct'),
-      );
+    id: record.id,
+    name: record.getStringValue('name'),
+    currency: record.getStringValue('currency'),
+    version: record.getIntValue('version'),
+    ownerId: record.getStringValue('owner'),
+    isDirect: record.getBoolValue('is_direct'),
+  );
 
   GroupMember _memberFromRecord(RecordModel record) => GroupMember(
-        id: record.id,
-        groupId: record.getStringValue('group'),
-        userId: record.getStringValue('user'),
-        role: record.getStringValue('role'),
-      );
+    id: record.id,
+    groupId: record.getStringValue('group'),
+    userId: record.getStringValue('user'),
+    role: record.getStringValue('role'),
+  );
 }

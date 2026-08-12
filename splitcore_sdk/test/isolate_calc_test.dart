@@ -33,17 +33,13 @@ void main() {
       Balance(memberId: 'b', netCents: -500),
     ]);
 
-    expect(transfers, [
-      const Transfer(fromMemberId: 'b', toMemberId: 'a', amountCents: 500),
-    ]);
+    expect(transfers, [const Transfer(fromMemberId: 'b', toMemberId: 'a', amountCents: 500)]);
   });
 
   test('computeBalances propagates errors as SplitcoreException across isolate boundary', () {
     expect(
       () => calc.computeBalances(
-        expenses: const [
-          ExpenseInput(payerId: 'a', amountCents: 1000, splits: []),
-        ],
+        expenses: const [ExpenseInput(payerId: 'a', amountCents: 1000, splits: [])],
         settlements: const [],
       ),
       throwsA(isA<SplitcoreException>()),

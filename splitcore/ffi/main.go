@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"unsafe"
 
-	"github.com/abdulroufsidhu/slice_pay/splitcore/ffi/handler"
+	"github.com/abdulroufsidhu/splitcore/splitcore/ffi/handler"
 )
 
 // ffiErrJSON marshals an error message the same way handler.errJSON

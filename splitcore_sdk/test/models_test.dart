@@ -20,10 +20,13 @@ void main() {
     });
 
     test('exact split JSON carries amount_cents per entry', () {
-      final spec = SplitSpec.exact(totalCents: 500, entries: [
-        const ExactSplitEntry(memberId: 'a', amountCents: 300),
-        const ExactSplitEntry(memberId: 'b', amountCents: 200),
-      ]);
+      final spec = SplitSpec.exact(
+        totalCents: 500,
+        entries: [
+          const ExactSplitEntry(memberId: 'a', amountCents: 300),
+          const ExactSplitEntry(memberId: 'b', amountCents: 200),
+        ],
+      );
 
       final json = spec.toJson();
 
@@ -35,10 +38,13 @@ void main() {
     });
 
     test('percent split JSON carries basis_points per entry', () {
-      final spec = SplitSpec.percent(totalCents: 1000, entries: [
-        const PercentSplitEntry(memberId: 'a', basisPoints: 5000),
-        const PercentSplitEntry(memberId: 'b', basisPoints: 5000),
-      ]);
+      final spec = SplitSpec.percent(
+        totalCents: 1000,
+        entries: [
+          const PercentSplitEntry(memberId: 'a', basisPoints: 5000),
+          const PercentSplitEntry(memberId: 'b', basisPoints: 5000),
+        ],
+      );
 
       final json = spec.toJson();
 
@@ -50,10 +56,13 @@ void main() {
     });
 
     test('shares split JSON carries shares per entry', () {
-      final spec = SplitSpec.shares(totalCents: 900, entries: [
-        const ShareSplitEntry(memberId: 'a', shares: 1),
-        const ShareSplitEntry(memberId: 'b', shares: 2),
-      ]);
+      final spec = SplitSpec.shares(
+        totalCents: 900,
+        entries: [
+          const ShareSplitEntry(memberId: 'a', shares: 1),
+          const ShareSplitEntry(memberId: 'b', shares: 2),
+        ],
+      );
 
       final json = spec.toJson();
 
@@ -106,7 +115,10 @@ void main() {
       const expense = ExpenseInput(
         payerId: 'a',
         amountCents: 1000,
-        splits: [Split(memberId: 'a', amountCents: 500), Split(memberId: 'b', amountCents: 500)],
+        splits: [
+          Split(memberId: 'a', amountCents: 500),
+          Split(memberId: 'b', amountCents: 500),
+        ],
       );
 
       final json = expense.toJson();

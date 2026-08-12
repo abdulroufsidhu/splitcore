@@ -1,5 +1,5 @@
-name: app
-description: "A new Flutter project."
+name: splitcore_app
+description: "Splitcore mobile and desktop client: shared expense groups, split math via the splitcore FFI engine, settlements, and receipts."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -31,17 +31,17 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
-
   splitcore_sdk:
     path: ../splitcore_sdk
-  pocketbase: ^0.22.0
   google_fonts: ^6.2.1
   intl: ^0.19.0
   shared_preferences: ^2.3.2
   image_picker: ^1.1.2
+  connectivity_plus: ^6.1.0
+  path_provider: ^2.1.4
+  # No Dart API — it bundles libsqlite3 into the Android and iOS builds,
+  # the way jniLibs bundles libsplitcore. Desktop uses the system library.
+  sqlite3_flutter_libs: ^0.5.24
 
 dev_dependencies:
   flutter_test:
@@ -53,6 +53,36 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+
+  # Fans assets/icon/icon.png out into every platform's launcher-icon
+  # format. Build-time only: run `dart run flutter_launcher_icons` after
+  # changing the source PNG, then commit the generated files.
+  flutter_launcher_icons: ^0.14.1
+
+# The mark: a paper disc with one wedge cut out and pushed clear of it —
+# ink/paper/positive straight off the app's own palette (lib/theme.dart).
+# Android gets the separate foreground because a launcher may mask the icon
+# into any shape, so the mark has to sit inside the 66% safe zone.
+flutter_launcher_icons:
+  image_path: "assets/icon/icon.png"
+  android: true
+  adaptive_icon_background: "#1B1915"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  ios: true
+  # The App Store rejects icons with an alpha channel.
+  remove_alpha_ios: true
+  macos:
+    generate: true
+    image_path: "assets/icon/icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    icon_size: 256
+  web:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    background_color: "#1B1915"
+    theme_color: "#1B1915"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

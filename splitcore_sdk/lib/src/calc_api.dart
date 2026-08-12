@@ -10,8 +10,7 @@ class SplitcoreCalc {
 
   /// Opens the splitcore shared library at [libraryPath] (e.g. the linux
   /// .so for desktop/tests, or a platform-resolved path for mobile).
-  factory SplitcoreCalc.open(String libraryPath) =>
-      SplitcoreCalc._(IsolateCalc(libraryPath));
+  factory SplitcoreCalc.open(String libraryPath) => SplitcoreCalc._(IsolateCalc(libraryPath));
 
   final IsolateCalc _isolateCalc;
 
@@ -23,10 +22,8 @@ class SplitcoreCalc {
   Future<List<Balance>> computeBalances({
     required List<ExpenseInput> expenses,
     required List<SettlementInput> settlements,
-  }) =>
-      _isolateCalc.computeBalances(expenses: expenses, settlements: settlements);
+  }) => _isolateCalc.computeBalances(expenses: expenses, settlements: settlements);
 
   /// Suggests the minimal set of transfers to zero out a group's balances.
-  Future<List<Transfer>> settleUp(List<Balance> balances) =>
-      _isolateCalc.simplifyDebts(balances);
+  Future<List<Transfer>> settleUp(List<Balance> balances) => _isolateCalc.simplifyDebts(balances);
 }

@@ -71,18 +71,17 @@ class SliceTheme extends ThemeExtension<SliceTheme> {
     Color? muted,
     Color? positive,
     Color? negative,
-  }) =>
-      SliceTheme(
-        paper: paper ?? this.paper,
-        card: card ?? this.card,
-        border: border ?? this.border,
-        borderSoft: borderSoft ?? this.borderSoft,
-        chip: chip ?? this.chip,
-        ink: ink ?? this.ink,
-        muted: muted ?? this.muted,
-        positive: positive ?? this.positive,
-        negative: negative ?? this.negative,
-      );
+  }) => SliceTheme(
+    paper: paper ?? this.paper,
+    card: card ?? this.card,
+    border: border ?? this.border,
+    borderSoft: borderSoft ?? this.borderSoft,
+    chip: chip ?? this.chip,
+    ink: ink ?? this.ink,
+    muted: muted ?? this.muted,
+    positive: positive ?? this.positive,
+    negative: negative ?? this.negative,
+  );
 
   @override
   SliceTheme lerp(ThemeExtension<SliceTheme>? other, double t) {
@@ -119,10 +118,11 @@ ThemeData _buildTheme(SliceTheme colors, Brightness brightness) {
       brightness: brightness,
       surface: colors.paper,
     ),
-    textTheme: (brightness == Brightness.dark
-            ? GoogleFonts.schibstedGroteskTextTheme(ThemeData(brightness: brightness).textTheme)
-            : GoogleFonts.schibstedGroteskTextTheme())
-        .apply(bodyColor: colors.ink, displayColor: colors.ink),
+    textTheme:
+        (brightness == Brightness.dark
+                ? GoogleFonts.schibstedGroteskTextTheme(ThemeData(brightness: brightness).textTheme)
+                : GoogleFonts.schibstedGroteskTextTheme())
+            .apply(bodyColor: colors.ink, displayColor: colors.ink),
     extensions: [colors],
   );
   final pillShape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(999));
@@ -152,8 +152,11 @@ ThemeData _buildTheme(SliceTheme colors, Brightness brightness) {
 }
 
 /// Money font — every figure in the app renders through this.
-TextStyle moneyStyle({double size = 15, FontWeight weight = FontWeight.w600, required Color color}) =>
-    GoogleFonts.splineSansMono(fontSize: size, fontWeight: weight, color: color);
+TextStyle moneyStyle({
+  double size = 15,
+  FontWeight weight = FontWeight.w600,
+  required Color color,
+}) => GoogleFonts.splineSansMono(fontSize: size, fontWeight: weight, color: color);
 
 /// The small tracked-out uppercase label repeated above every section
 /// ("PAID BY", "SPLIT", "GROUP NAME", ...) — one definition instead of a

@@ -21,7 +21,10 @@ void main() {
     pb = PocketBase(server.baseUrl);
     auth = AuthApi(pb);
     groups = GroupsApi(pb);
-    await auth.signUp(email: 'owner-${DateTime.now().microsecondsSinceEpoch}@example.com', password: 'password123');
+    await auth.signUp(
+      email: 'owner-${DateTime.now().microsecondsSinceEpoch}@example.com',
+      password: 'password123',
+    );
   });
 
   test('createGroup sets owner from the authenticated user and starts at version 0', () async {
@@ -39,7 +42,11 @@ void main() {
     final defaultGroup = await groups.createGroup(name: 'Regular group', currency: 'USD');
     expect(defaultGroup.isDirect, isFalse);
 
-    final directGroup = await groups.createGroup(name: 'Sara | Me', currency: 'USD', isDirect: true);
+    final directGroup = await groups.createGroup(
+      name: 'Sara | Me',
+      currency: 'USD',
+      isDirect: true,
+    );
     expect(directGroup.isDirect, isTrue);
   });
 
@@ -66,8 +73,10 @@ void main() {
 
   test('addMember adds another user as a member of the group', () async {
     final group = await groups.createGroup(name: 'Shared flat', currency: 'GBP');
-    final other = await AuthApi(PocketBase(server.baseUrl))
-        .signUp(email: 'member-${DateTime.now().microsecondsSinceEpoch}@example.com', password: 'password123');
+    final other = await AuthApi(PocketBase(server.baseUrl)).signUp(
+      email: 'member-${DateTime.now().microsecondsSinceEpoch}@example.com',
+      password: 'password123',
+    );
 
     final member = await groups.addMember(groupId: group.id, userId: other.id, role: 'member');
 
@@ -80,7 +89,9 @@ void main() {
   test('inviteOrAddMember adds an existing user immediately', () async {
     final group = await groups.createGroup(name: 'Existing user invite', currency: 'USD');
     final otherEmail = 'existing-${DateTime.now().microsecondsSinceEpoch}@example.com';
-    final other = await AuthApi(PocketBase(server.baseUrl)).signUp(email: otherEmail, password: 'password123');
+    final other = await AuthApi(
+      PocketBase(server.baseUrl),
+    ).signUp(email: otherEmail, password: 'password123');
 
     final added = await groups.inviteOrAddMember(groupId: group.id, email: otherEmail);
 
@@ -101,7 +112,9 @@ void main() {
     final beforeSignup = await groups.listMembers(group.id);
     expect(beforeSignup.length, 1); // just the owner
 
-    final newUser = await AuthApi(PocketBase(server.baseUrl)).signUp(email: futureEmail, password: 'password123');
+    final newUser = await AuthApi(
+      PocketBase(server.baseUrl),
+    ).signUp(email: futureEmail, password: 'password123');
 
     final afterSignup = await groups.listMembers(group.id);
     expect(afterSignup.map((m) => m.userId), contains(newUser.id));

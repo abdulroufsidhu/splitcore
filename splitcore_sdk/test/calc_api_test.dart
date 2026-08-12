@@ -42,9 +42,7 @@ void main() {
       Balance(memberId: 'b', netCents: -500),
     ]);
 
-    expect(transfers, [
-      const Transfer(fromMemberId: 'b', toMemberId: 'a', amountCents: 500),
-    ]);
+    expect(transfers, [const Transfer(fromMemberId: 'b', toMemberId: 'a', amountCents: 500)]);
   });
 
   test('errors from the native layer surface as SplitcoreException through the public API', () {

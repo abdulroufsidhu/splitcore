@@ -81,6 +81,10 @@ a separate `iphonesimulator`-SDK build combined via `lipo` or
 
 ## Running the app
 
+The app's built-in default is the deployed server,
+`https://splitcore.orgolink.ch`. Working against a local server means saying
+so:
+
 ```bash
 cd app
 flutter pub get

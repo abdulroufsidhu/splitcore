@@ -54,6 +54,17 @@ func addOrNoOpMember(e *core.RequestEvent, group *core.Record, user *core.Record
 	already, err := e.App.FindFirstRecordByFilter("group_members",
 		"group = {:g} && user = {:u}", dbx.Params{"g": group.Id, "u": user.Id})
 	if err == nil && already != nil {
+		// Re-inviting someone who was removed puts them back. Their row was
+		// kept rather than deleted precisely because it still carries
+		// history (see remove_member.go), so clearing the marker restores
+		// the membership and everything hanging off it. Without this,
+		// removal would be a one-way door.
+		if already.GetString("removed_at") != "" {
+			already.Set("removed_at", nil)
+			if err := e.App.Save(already); err != nil {
+				return err
+			}
+		}
 		return e.JSON(http.StatusOK, map[string]any{"status": "added"})
 	}
 

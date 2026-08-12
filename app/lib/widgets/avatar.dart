@@ -12,6 +12,7 @@ class Avatar extends StatelessWidget {
     this.background,
     this.foreground,
     this.imageUrl,
+    this.semanticLabel,
   });
 
   final String label;
@@ -25,8 +26,24 @@ class Avatar extends StatelessWidget {
   /// back to initials on load failure (e.g. offline).
   final String? imageUrl;
 
+  /// What a screen reader should announce. Null means "decorative": the
+  /// raw initials ("MS") are duplication of a name that is almost always
+  /// rendered next to the avatar, so announcing them is noise.
+  final String? semanticLabel;
+
   @override
   Widget build(BuildContext context) {
+    final avatar = _build(context);
+    return semanticLabel == null
+        ? ExcludeSemantics(child: avatar)
+        : Semantics(
+            label: semanticLabel,
+            image: true,
+            child: ExcludeSemantics(child: avatar),
+          );
+  }
+
+  Widget _build(BuildContext context) {
     final slice = context.slice;
     final initials = Container(
       width: size,

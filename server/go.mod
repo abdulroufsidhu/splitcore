@@ -1,11 +1,11 @@
-module github.com/abdulroufsidhu/slice_pay/server
+module github.com/abdulroufsidhu/splitcore/server
 
 go 1.26.4
 
-replace github.com/abdulroufsidhu/slice_pay/splitcore => ../splitcore
+replace github.com/abdulroufsidhu/splitcore/splitcore => ../splitcore
 
 require (
-	github.com/abdulroufsidhu/slice_pay/splitcore v0.0.0-00010101000000-000000000000
+	github.com/abdulroufsidhu/splitcore/splitcore v0.0.0-00010101000000-000000000000
 	github.com/pocketbase/dbx v1.12.0
 	github.com/pocketbase/pocketbase v0.39.5
 )

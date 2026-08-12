@@ -2,12 +2,13 @@ package hooks_test
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 
-	"github.com/abdulroufsidhu/slice_pay/server/internal/testfix"
+	"github.com/abdulroufsidhu/splitcore/server/internal/testfix"
 )
 
 // ---------------------------------------------------------------------
@@ -48,12 +49,16 @@ func TestStalenessMemberCurrent(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		scenario.URL = "/api/splitcore/staleness?group=" + f.Group.Id + "&version=0"
+		// Asked with the version the group actually has, not a hardcoded 0
+		// — building the fixture adds two members, and each of those bumps
+		// the counter.
+		v := f.Version(t)
+		scenario.URL = "/api/splitcore/staleness?group=" + f.Group.Id + "&version=" + strconv.Itoa(v)
 		scenario.Headers = map[string]string{"Authorization": token}
+		scenario.ExpectedContent = []string{`"current":true`, `"serverVersion":` + strconv.Itoa(v)}
 		return f.App
 	}
 	scenario.ExpectedStatus = 200
-	scenario.ExpectedContent = []string{`"current":true`, `"serverVersion":0`}
 	scenario.Test(t)
 }
 
@@ -83,7 +88,10 @@ func TestStalenessMemberStale(t *testing.T) {
 
 		scenario.URL = "/api/splitcore/staleness?group=" + f.Group.Id + "&version=0"
 		scenario.Headers = map[string]string{"Authorization": token}
-		scenario.ExpectedContent = []string{`"current":false`, `"serverVersion":3`}
+		scenario.ExpectedContent = []string{
+			`"current":false`,
+			`"serverVersion":` + strconv.Itoa(serverVersion),
+		}
 		return f.App
 	}
 	scenario.ExpectedStatus = 200

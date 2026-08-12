@@ -1,5 +1,6 @@
 // 1a — Home: groups & balances. The groups list *is* the app (no tab bar);
 // account/sign-out lives behind the header avatar.
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -7,20 +8,27 @@ import 'package:image_picker/image_picker.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import '../display_name.dart';
+import '../layout.dart';
 import '../money.dart';
+import '../loadable.dart';
 import '../theme.dart';
+import '../widgets/adaptive_sheet.dart';
+import '../widgets/async_section.dart';
 import '../widgets/avatar.dart';
 import '../widgets/currency_picker.dart';
 import '../widgets/money_text.dart';
 import '../widgets/page_body.dart';
 import '../widgets/skeleton.dart';
+import 'account.dart';
 import 'activity.dart';
 import 'group_detail.dart';
 import 'new_group.dart';
 
 /// One row's worth of data: the group plus *my* net balance within it.
-class _GroupRow {
-  _GroupRow(
+/// One row's worth of data. Public so a widget test can build fixtures
+/// without an SDK.
+class GroupRow {
+  GroupRow(
     this.group,
     this.myMemberId,
     this.myNetCents,
@@ -28,6 +36,7 @@ class _GroupRow {
     this.directName,
     this.directAvatarUrl,
   );
+
   final Group group;
   final String myMemberId;
   final int myNetCents;
@@ -46,9 +55,30 @@ class HomeScreen extends StatefulWidget {
     required this.me,
     required this.onSignedOut,
     required this.onProfileUpdated,
+    this.onGroupSelected,
+    this.selectedGroupId,
+    this.showChrome = true,
+    this.loadOverride,
+    this.updateProfileOverride,
   });
 
-  final SplitcoreSdk sdk;
+  /// Set by the shell when this list is a pane beside a detail pane: the
+  /// tap reports the group instead of pushing a route on top of the list.
+  /// Null on a phone, where tapping a group *is* navigation.
+  final ValueChanged<Group>? onGroupSelected;
+
+  /// Which row reads as the one on show in the detail pane. Null when
+  /// nothing is selected, and always null on a phone, where the list is
+  /// never on screen next to a group.
+  final String? selectedGroupId;
+
+  /// False when a navigation rail is already carrying Activity and
+  /// Account, so this screen does not draw a second set of the same two
+  /// affordances beside it.
+  final bool showChrome;
+
+  /// Null only in widget tests, which supply [loadOverride] instead.
+  final SplitcoreSdk? sdk;
   final AppUser me;
   final VoidCallback onSignedOut;
 
@@ -56,64 +86,132 @@ class HomeScreen extends StatefulWidget {
   /// the AppUser it hands down (widget.me here doesn't rebuild on its own).
   final ValueChanged<AppUser> onProfileUpdated;
 
+  /// Test seam: supplies the group rows without an SDK or a server.
+  @visibleForTesting
+  final Future<List<GroupRow>> Function()? loadOverride;
+
+  /// Test seam for the profile save, so a test can prove the request is
+  /// actually issued without standing up an SDK. Matches
+  /// [AuthApi.updateProfile]'s signature.
+  @visibleForTesting
+  final Future<AppUser> Function({String? name, Uint8List? avatarBytes, String? avatarFilename})?
+  updateProfileOverride;
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<_GroupRow>? _rows;
-  Object? _error;
-  bool _loading = true;
+  late final Loadable<List<GroupRow>> _rows = Loadable(widget.loadOverride ?? _fetchRows);
+
+  StreamSubscription<List<Group>>? _groupsSub;
+  StreamSubscription<SyncEvent>? _syncSub;
+
+  /// Owned by the State, not built per sheet. A controller created inside
+  /// _showEditProfileSheet had to be disposed there too, and the only place
+  /// to do that was the moment showModalBottomSheet's future resolved — but
+  /// the sheet's TextField is still on screen through the dismiss
+  /// animation, so it read a disposed controller every time.
+  final TextEditingController _profileName = TextEditingController();
+
+  /// True while the engine has a pull in flight. The local read that backs
+  /// [_rows] succeeds immediately with whatever is cached, so on a first
+  /// sign-in it succeeds with nothing — and an empty list is indistinguishable
+  /// from "you have no groups" unless the screen also knows a pull is still
+  /// running. Without this the user is told "No groups yet" while their
+  /// groups are on the wire.
+  bool _syncing = false;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _rows.load();
+    // Every write and every sync commits to the local database, and this is
+    // how the list finds out. Without it a group added on another device —
+    // or by the pull that runs moments after launch — sits invisible until
+    // the user pulls to refresh.
+    _groupsSub = widget.sdk?.groups.watchGroups().skip(1).listen((_) => _load());
+    _syncSub = widget.sdk?.sync.events.listen((event) {
+      final syncing = event is SyncStarted;
+      if (mounted && syncing != _syncing) setState(() => _syncing = syncing);
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_groupsSub?.cancel());
+    unawaited(_syncSub?.cancel());
+    _profileName.dispose();
+    _rows.dispose();
+    super.dispose();
   }
 
   /// One group's row, or null to skip it (e.g. our membership hasn't
   /// propagated yet, or the group's data failed to load) — a single bad
   /// group no longer takes down the whole list.
-  Future<_GroupRow?> _loadRow(Group group) async {
+  Future<GroupRow?> _loadRow(Group group) async {
     try {
-      final members = await widget.sdk.groups.listMembers(group.id);
+      final members = await widget.sdk!.groups.listMembers(group.id);
       final me = memberFor(members, widget.me.id);
       if (me == null) return null;
-      final balances = await widget.sdk.balances.getBalances(group.id);
+      final balances = await widget.sdk!.balances.get(group.id);
       final myBalances = balances.where((b) => b.memberId == me.id);
       final myNetCents = myBalances.isEmpty ? 0 : myBalances.first.netCents;
       final directName = group.isDirect ? directPersonName(members, widget.me, group.name) : '';
-      final directAvatarUrl = group.isDirect ? (otherMember(members, widget.me)?.avatarUrl ?? '') : '';
-      return _GroupRow(group, me.id, myNetCents, members.length, directName, directAvatarUrl);
+      final directAvatarUrl = group.isDirect
+          ? (otherMember(members, widget.me)?.avatarUrl ?? '')
+          : '';
+      return GroupRow(group, me.id, myNetCents, members.length, directName, directAvatarUrl);
     } catch (_) {
       return null;
     }
   }
 
-  Future<void> _load() async {
-    try {
-      final groups = await widget.sdk.groups.listMyGroups();
-      final rows = await Future.wait(groups.map(_loadRow));
-      if (!mounted) return;
-      setState(() {
-        _rows = [for (final r in rows) if (r != null) r];
-        _error = null;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e;
-        _loading = false;
-      });
-    }
+  /// Reads the local database only — no request, so this succeeds offline
+  /// and on the first frame. Freshness is the sync engine's job, not this
+  /// screen's.
+  Future<List<GroupRow>> _fetchRows() async {
+    final groups = await widget.sdk!.groups.listMyGroups();
+    final loaded = await Future.wait(groups.map(_loadRow));
+    return [
+      for (final r in loaded)
+        if (r != null) r,
+    ];
+  }
+
+  Future<void> _load() => _rows.load();
+
+  /// Pull-to-refresh asks the sync engine for a pull; the resulting local
+  /// write comes back through _groupsSub.
+  Future<void> _refreshFromServer() async {
+    await widget.sdk?.sync.now();
+    await _load();
   }
 
   void _refresh() {
     if (mounted) _load();
   }
 
-  Map<String, int> _netByCurrency(List<_GroupRow> rows) {
+  /// Opening a group means two different things depending on how much room
+  /// there is. On a phone the list *is* the screen, so the group is pushed
+  /// on top of it. Beside a detail pane, pushing would cover the list the
+  /// user is selecting from, so the shell is told instead and swaps what
+  /// the pane shows.
+  Future<void> _openGroup(Group group) async {
+    final select = widget.onGroupSelected;
+    if (select != null) {
+      select(group);
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GroupDetailScreen(sdk: widget.sdk, me: widget.me, group: group),
+      ),
+    );
+    _refresh();
+  }
+
+  Map<String, int> _netByCurrency(List<GroupRow> rows) {
     final totals = <String, int>{};
     for (final r in rows) {
       totals[r.group.currency] = (totals[r.group.currency] ?? 0) + r.myNetCents;
@@ -124,146 +222,174 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final slice = context.slice;
+    final size = context.windowSize;
+    final gutter = size.gutter;
     return Scaffold(
       body: SafeArea(
-        child: Builder(builder: (context) {
-          final rows = _rows;
-          if (rows == null && _loading) {
-            return const SkeletonList();
-          }
-          if (rows == null && _error != null) {
-            return Center(child: Text('Failed to load groups: $_error'));
-          }
-          final totals = _netByCurrency(rows!);
-          return PageBody(child: Stack(
-              children: [
-                Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('SlicePay', style: pageTitleStyle(slice.ink)),
-                          Row(
-                            children: [
-                              IconButton(
-                                tooltip: 'Activity',
-                                icon: Icon(Icons.receipt_long_outlined, color: slice.ink),
-                                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                                  builder: (_) => ActivityScreen(sdk: widget.sdk, me: widget.me),
-                                )),
-                              ),
-                              GestureDetector(
-                                onTap: () => _showAccountSheet(context),
-                                child: Avatar(
-                                  meInitial(widget.me),
-                                  imageUrl: widget.me.avatarUrl,
-                                  background: slice.ink,
-                                  foreground: slice.paper,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (totals.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-                        decoration: BoxDecoration(
-                          border: Border(bottom: BorderSide(color: slice.border)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+        child: AsyncSection<List<GroupRow>>(
+          loadable: _rows,
+          errorLabel: "Couldn't load your groups.",
+          skeleton: const SkeletonList(),
+          builder: (context, rows) {
+            final totals = _netByCurrency(rows);
+            return PageBody(
+              child: Stack(
+                children: [
+                  Column(
+                    children: [
+                      if (widget.sdk != null) _SyncBanner(sync: widget.sdk!.sync),
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(gutter, 10, gutter, 4),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('OVERALL', style: sectionLabelStyle(slice.muted)),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 20,
-                              runSpacing: 8,
-                              children: [
-                                for (final entry in totals.entries)
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      MoneyText(entry.value, entry.key, size: 28),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        entry.value >= 0 ? 'owed to you' : 'you owe',
-                                        style: TextStyle(fontSize: 12, color: slice.muted),
-                                      ),
-                                    ],
-                                  ),
-                              ],
+                            Text(
+                              'SlicePay',
+                              style: pageTitleStyle(slice.ink, size: size.titleSize),
                             ),
+                            // Withheld when a rail is already offering both
+                            // of these, rather than drawing them twice.
+                            if (widget.showChrome)
+                              Row(
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Activity',
+                                    icon: Icon(Icons.receipt_long_outlined, color: slice.ink),
+                                    onPressed: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            ActivityScreen(sdk: widget.sdk, me: widget.me),
+                                      ),
+                                    ),
+                                  ),
+                                  // The avatar is the only affordance for
+                                  // reaching account settings, so it needs a
+                                  // name and a 48dp target of its own.
+                                  Semantics(
+                                    button: true,
+                                    label: 'Account',
+                                    child: GestureDetector(
+                                      onTap: () => _showAccountSheet(context),
+                                      child: Container(
+                                        width: 48,
+                                        height: 48,
+                                        alignment: Alignment.center,
+                                        child: Avatar(
+                                          meInitial(widget.me),
+                                          imageUrl: widget.me.avatarUrl,
+                                          background: slice.ink,
+                                          foreground: slice.paper,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                           ],
                         ),
                       ),
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: _load,
-                        child: rows.isEmpty
-                            ? ListView(
-                                physics: const AlwaysScrollableScrollPhysics(),
+                      if (totals.isNotEmpty)
+                        Container(
+                          padding: EdgeInsets.fromLTRB(gutter, 14, gutter, 18),
+                          decoration: BoxDecoration(
+                            border: Border(bottom: BorderSide(color: slice.border)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('OVERALL', style: sectionLabelStyle(slice.muted)),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 20,
+                                runSpacing: 8,
                                 children: [
-                                  const SizedBox(height: 120),
-                                  Center(child: Text('No groups yet', style: TextStyle(color: slice.muted))),
+                                  for (final entry in totals.entries)
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        MoneyText(entry.value, entry.key, size: 28),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          entry.value >= 0 ? 'owed to you' : 'you owe',
+                                          style: TextStyle(fontSize: 12, color: slice.muted),
+                                        ),
+                                      ],
+                                    ),
                                 ],
-                              )
-                            : ListView.builder(
-                                padding: const EdgeInsets.only(bottom: 100),
-                                itemCount: rows.length,
-                                itemBuilder: (context, i) => _GroupTile(
-                                  row: rows[i],
-                                  onTap: () async {
-                                    await Navigator.of(context).push(MaterialPageRoute(
-                                      builder: (_) => GroupDetailScreen(
-                                        sdk: widget.sdk,
-                                        me: widget.me,
-                                        group: rows[i].group,
-                                      ),
-                                    ));
-                                    _refresh();
-                                  },
-                                ),
                               ),
-                      ),
-                    ),
-                  ],
-                ),
-                Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: 24,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          await _showAddPersonSheet(context);
-                          _refresh();
-                        },
-                        icon: Icon(Icons.person_add_alt_1, color: slice.ink),
-                        label: const Text('Add person'),
-                      ),
-                      const SizedBox(width: 10),
-                      FilledButton.icon(
-                        onPressed: () async {
-                          await Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => NewGroupScreen(sdk: widget.sdk),
-                          ));
-                          _refresh();
-                        },
-                        icon: Icon(Icons.add, color: slice.paper),
-                        label: const Text('New group'),
+                            ],
+                          ),
+                        ),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: _refreshFromServer,
+                          child: rows.isEmpty && _syncing
+                              ? const SkeletonList()
+                              : rows.isEmpty
+                              ? ListView(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  children: [
+                                    const SizedBox(height: 120),
+                                    Center(
+                                      child: Text(
+                                        'No groups yet',
+                                        style: TextStyle(color: slice.muted),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.only(bottom: 100),
+                                  itemCount: rows.length,
+                                  itemBuilder: (context, i) => _GroupTile(
+                                    row: rows[i],
+                                    selected: rows[i].group.id == widget.selectedGroupId,
+                                    onTap: () => _openGroup(rows[i].group),
+                                  ),
+                                ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ));
-        }),
+                  Positioned(
+                    left: gutter,
+                    right: gutter,
+                    bottom: 24,
+                    // Wraps rather than overflowing: two pill buttons with
+                    // labels need about 340px, and a folded foldable's
+                    // cover screen is 320.
+                    child: Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(backgroundColor: slice.paper),
+                          onPressed: () async {
+                            await _showAddPersonSheet(context);
+                            _refresh();
+                          },
+                          icon: Icon(Icons.person_add_alt_1, color: slice.ink),
+                          label: const Text('Add person'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => NewGroupScreen(sdk: widget.sdk!)),
+                            );
+                            _refresh();
+                          },
+                          icon: Icon(Icons.add, color: slice.paper),
+                          label: const Text('New group'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -274,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final nameController = TextEditingController();
     final emailController = TextEditingController();
     var currency = 'USD';
-    final confirmed = await showModalBottomSheet<bool>(
+    final confirmed = await showAdaptiveSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(
@@ -292,7 +418,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const Text('Add person', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
               const SizedBox(height: 12),
               TextField(
-                controller: nameController,
+                controller: _profileName,
                 decoration: const InputDecoration(labelText: 'Name'),
                 autofocus: true,
               ),
@@ -330,12 +456,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed != true || !context.mounted) return;
     if (personName.isEmpty || email.isEmpty) return;
     try {
-      final group = await widget.sdk.groups.createGroup(
+      final group = await widget.sdk!.groups.createGroup(
         name: personName,
         currency: currency,
         isDirect: true,
       );
-      await widget.sdk.groups.inviteOrAddMember(groupId: group.id, email: email);
+      await widget.sdk!.groups.inviteOrAddMember(groupId: group.id, email: email);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added $personName')));
     } catch (e) {
@@ -345,7 +471,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showAccountSheet(BuildContext context) {
-    showModalBottomSheet(
+    showAdaptiveSheet(
       context: context,
       builder: (context) => SafeArea(
         child: Column(
@@ -361,7 +487,24 @@ class _HomeScreenState extends State<HomeScreen> {
               title: const Text('Edit profile'),
               onTap: () {
                 Navigator.of(context).pop();
-                _showEditProfileSheet(context);
+                _showEditProfileSheet();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_outlined),
+              title: const Text('Account settings'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(this.context).push(
+                  MaterialPageRoute(
+                    builder: (_) => AccountScreen(
+                      sdk: widget.sdk,
+                      me: widget.me,
+                      groups: [for (final r in _rows.value ?? const <GroupRow>[]) r.group],
+                      onSignedOut: widget.onSignedOut,
+                    ),
+                  ),
+                );
               },
             ),
             ListTile(
@@ -378,11 +521,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _showEditProfileSheet(BuildContext context) async {
-    final nameController = TextEditingController(text: widget.me.name);
+  /// Takes no BuildContext on purpose. It used to, and the "Edit profile"
+  /// tile passed it the account sheet's own context immediately after
+  /// popping that sheet — so by the time the user typed a name and pressed
+  /// Save, the `context.mounted` guard below was false and the whole save
+  /// was silently skipped. The State's context outlives every sheet this
+  /// screen opens, which is the only thing that guard can safely ask about.
+  Future<void> _showEditProfileSheet() async {
+    _profileName.text = widget.me.name;
     Uint8List? pickedBytes;
     XFile? pickedFile;
-    final saved = await showModalBottomSheet<bool>(
+    final saved = await showAdaptiveSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(
@@ -397,7 +546,10 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Edit profile', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              const Text(
+                'Edit profile',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
               const SizedBox(height: 16),
               Center(
                 child: GestureDetector(
@@ -417,7 +569,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 16),
               TextField(
-                controller: nameController,
+                controller: _profileName,
                 decoration: const InputDecoration(labelText: 'Name'),
                 autofocus: true,
               ),
@@ -431,11 +583,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    final newName = nameController.text.trim();
-    nameController.dispose();
-    if (saved != true || !context.mounted) return;
+    final newName = _profileName.text.trim();
+    if (saved != true || !mounted) return;
     try {
-      final updated = await widget.sdk.auth.updateProfile(
+      final update = widget.updateProfileOverride ?? widget.sdk!.auth.updateProfile;
+      final updated = await update(
         name: newName.isEmpty ? null : newName,
         avatarBytes: pickedBytes,
         avatarFilename: pickedFile?.name,
@@ -443,17 +595,21 @@ class _HomeScreenState extends State<HomeScreen> {
       widget.onProfileUpdated(updated);
       _refresh();
     } catch (e) {
-      if (!context.mounted) return;
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
     }
   }
 }
 
 class _GroupTile extends StatelessWidget {
-  const _GroupTile({required this.row, required this.onTap});
+  const _GroupTile({required this.row, required this.onTap, this.selected = false});
 
-  final _GroupRow row;
+  final GroupRow row;
   final VoidCallback onTap;
+
+  /// True for the group currently showing in the detail pane. Always false
+  /// on a phone, where the list is never on screen beside a group.
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -464,8 +620,9 @@ class _GroupTile extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        padding: EdgeInsets.symmetric(horizontal: context.gutter, vertical: 18),
         decoration: BoxDecoration(
+          color: selected ? slice.chip : null,
           border: Border(bottom: BorderSide(color: slice.border)),
         ),
         child: Row(
@@ -482,7 +639,9 @@ class _GroupTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    isDirect ? row.group.currency : '${row.memberCount} people · ${row.group.currency}',
+                    isDirect
+                        ? row.group.currency
+                        : '${row.memberCount} people · ${row.group.currency}',
                     style: TextStyle(fontSize: 12.5, color: slice.muted),
                   ),
                 ],
@@ -508,7 +667,104 @@ class _GroupTile extends StatelessWidget {
   String _initials(String name) {
     final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
     if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts.first.substring(0, parts.first.length.clamp(0, 2)).toUpperCase();
+    if (parts.length == 1) {
+      return parts.first.substring(0, parts.first.length.clamp(0, 2)).toUpperCase();
+    }
     return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+}
+
+/// Shown above the group list while the last sync attempt is failing.
+/// The numbers on screen are local and therefore always renderable; what
+/// the user needs to know is that they may be behind the server.
+class _SyncBanner extends StatefulWidget {
+  const _SyncBanner({required this.sync});
+
+  final SyncEngine sync;
+
+  @override
+  State<_SyncBanner> createState() => _SyncBannerState();
+}
+
+class _SyncBannerState extends State<_SyncBanner> {
+  StreamSubscription<SyncEvent>? _sub;
+  bool _failing = false;
+  int _conflicts = 0;
+  int _unsent = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refreshCounts());
+    _sub = widget.sync.events.listen((event) {
+      if (event is SyncStarted) return;
+      if (event is SyncFailed) {
+        if (!_failing) setState(() => _failing = true);
+        return;
+      }
+      if (_failing) setState(() => _failing = false);
+      unawaited(_refreshCounts());
+    });
+  }
+
+  /// Queue depth is read from the engine rather than tracked from events:
+  /// the banner can be built after ops were already queued, and a count
+  /// accumulated from events would start at zero and lie.
+  Future<void> _refreshCounts() async {
+    final conflicts = (await widget.sync.conflicts()).length;
+    final unsent = (await widget.sync.queued()).length;
+    if (!mounted || (conflicts == _conflicts && unsent == _unsent)) return;
+    setState(() {
+      _conflicts = conflicts;
+      _unsent = unsent;
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub?.cancel());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // A conflict outranks being offline: it is the only one that needs a
+    // decision from the user rather than just patience.
+    final message = switch ((_conflicts, _failing, _unsent)) {
+      (final c, _, _) when c > 0 =>
+        c == 1
+            ? "1 change couldn't be applied — someone else edited it."
+            : "$c changes couldn't be applied — someone else edited them.",
+      (_, true, final u) when u > 0 =>
+        u == 1
+            ? "You're offline — 1 change will sync when you reconnect."
+            : "You're offline — $u changes will sync when you reconnect.",
+      (_, true, _) => "You're offline — showing saved data.",
+      (_, false, final u) when u > 0 => 'Syncing $u change${u == 1 ? '' : 's'}…',
+      _ => null,
+    };
+    if (message == null) return const SizedBox.shrink();
+
+    final slice = context.slice;
+    final needsAttention = _conflicts > 0;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      color: slice.chip,
+      child: Row(
+        children: [
+          Icon(
+            needsAttention ? Icons.error_outline : Icons.cloud_off_outlined,
+            size: 18,
+            color: slice.muted,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(message, style: TextStyle(fontSize: 12.5, color: slice.ink)),
+          ),
+          TextButton(onPressed: widget.sync.now, child: const Text('Retry')),
+        ],
+      ),
+    );
   }
 }

@@ -1,0 +1,10 @@
+.git
+.github
+app
+docs
+splitcore_sdk
+splitcore/build/out
+server/pb_data
+server/server
+**/.dart_tool
+**/build

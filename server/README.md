@@ -94,3 +94,29 @@ optimistic UI or offline use) should use the `splitcore` Go module
 (`splitcore/balance`) directly against their locally cached
 expenses/splits/settlements, and use the staleness endpoint above to know
 when that local computation is out of date.
+
+## Account deletion semantics
+
+`POST /api/splitcore/delete-account` closes the **caller's own** account. It
+takes no user id, so there is nothing to authorize beyond being signed in.
+
+It has two outcomes, and the client must tell the user which one happened:
+
+| Response | When | Effect |
+|---|---|---|
+| `{"status":"deleted"}` | The user owns no group and appears in no expense, split, or settlement | Memberships removed, `users` row erased |
+| `{"status":"anonymized"}` | The user owns a group, or appears anywhere in the ledger | `users` row kept but stripped: tombstone email, no name or avatar, unverified, unusable password. Memberships and history untouched |
+
+Both refuse with `400` while any of the user's memberships carries a
+non-zero balance — leaving with money owed silently shifts the debt onto
+everyone else in the group.
+
+**Why anonymize rather than delete.** Every relation pointing at
+`group_members` — `expenses.payer`, `split_entries.member`,
+`settlements.from_member`/`to_member`, `balances.member` — is `Required`
+with `CascadeDelete: false`, and both `group_members.user` and
+`groups.owner` reference `users` the same way. So for anyone who has
+participated: the `users` row cannot be deleted (a membership references
+it), the membership cannot be deleted (split entries reference it), and
+deleting those split entries would rewrite *other members'* balances and
+erase shared history that is not this user's to destroy.

@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/abdulroufsidhu/slice_pay/splitcore/balance"
-	"github.com/abdulroufsidhu/slice_pay/splitcore/money"
-	"github.com/abdulroufsidhu/slice_pay/splitcore/settle"
+	"github.com/abdulroufsidhu/splitcore/splitcore/balance"
+	"github.com/abdulroufsidhu/splitcore/splitcore/money"
+	"github.com/abdulroufsidhu/splitcore/splitcore/settle"
 )
 
 type splitEntry struct {

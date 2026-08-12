@@ -47,11 +47,16 @@ func registerMembers(app core.App) {
 					avatar = user.GetString("avatar")
 				}
 				out = append(out, map[string]any{
-					"id":     m.Id,
-					"user":   userID,
-					"role":   m.GetString("role"),
-					"name":   name,
-					"avatar": avatar,
+					"id":   m.Id,
+					"user": userID,
+					"role": m.GetString("role"),
+					"name": name,
+					// Empty for an active member. Removed members are still
+					// returned: they own past expenses, so a client rendering
+					// history has to be able to name them (see
+					// server/hooks/remove_member.go).
+					"removed_at": m.GetString("removed_at"),
+					"avatar":     avatar,
 				})
 			}
 			return e.JSON(http.StatusOK, out)

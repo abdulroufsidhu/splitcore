@@ -6,40 +6,61 @@ import 'package:intl/intl.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import '../activity.dart';
+import '../loadable.dart';
 import '../theme.dart';
+import '../widgets/async_section.dart';
 import '../widgets/money_text.dart';
 import '../widgets/page_body.dart';
 import '../widgets/skeleton.dart';
 
 class ActivityScreen extends StatefulWidget {
-  const ActivityScreen({super.key, required this.sdk, required this.me});
+  const ActivityScreen({super.key, required this.sdk, required this.me, this.loadOverride});
 
-  final SplitcoreSdk sdk;
+  /// Null only in widget tests, which supply [loadOverride] instead.
+  final SplitcoreSdk? sdk;
   final AppUser me;
+
+  /// Test seam: supplies the feed without an SDK or a server.
+  @visibleForTesting
+  final Future<List<ActivityItem>> Function()? loadOverride;
 
   @override
   State<ActivityScreen> createState() => _ActivityScreenState();
 }
 
 class _ActivityScreenState extends State<ActivityScreen> {
-  late final Future<List<ActivityItem>> _items = _load();
+  late final Loadable<List<ActivityItem>> _items = Loadable(widget.loadOverride ?? _load);
 
-  // ponytail: N+1 over groups (one round trip per group); fine at personal
-  // scale, add a server-side aggregate endpoint if group counts grow.
+  @override
+  void initState() {
+    super.initState();
+    _items.load();
+  }
+
+  @override
+  void dispose() {
+    _items.dispose();
+    super.dispose();
+  }
+
+  // Every read below is a local SQLite query now, so the per-group loop is
+  // no longer N+1 round trips — it is N indexed reads against a file.
   Future<List<ActivityItem>> _load() async {
-    final groups = await widget.sdk.groups.listMyGroups();
+    final groups = await widget.sdk!.groups.listMyGroups();
     final items = <ActivityItem>[];
     for (final group in groups) {
-      final members = await widget.sdk.groups.listMembers(group.id);
-      final expenses = await widget.sdk.expenses.listExpenses(group.id);
-      final settlements = await widget.sdk.settlements.listSettlements(group.id);
-      items.addAll(buildActivity(
-        group: group,
-        members: members,
-        me: widget.me,
-        expenses: expenses,
-        settlements: settlements,
-      ));
+      final members = await widget.sdk!.groups.listMembers(group.id);
+      final expenses = await widget.sdk!.expenses.listExpenses(group.id);
+      final settlements = await widget.sdk!.settlements.listSettlements(group.id);
+      items.addAll(
+        buildActivity(
+          group: group,
+          members: members,
+          me: widget.me,
+          expenses: expenses,
+          settlements: settlements,
+        ),
+      );
     }
     items.sort((a, b) => b.date.compareTo(a.date));
     return items;
@@ -51,18 +72,15 @@ class _ActivityScreenState extends State<ActivityScreen> {
     return Scaffold(
       appBar: AppBar(leading: const BackButton(), title: const Text('Activity')),
       body: SafeArea(
-        child: FutureBuilder<List<ActivityItem>>(
-          future: _items,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const SkeletonList();
-            }
-            if (snapshot.hasError) {
-              return Center(child: Text('Failed to load activity: ${snapshot.error}'));
-            }
-            final items = snapshot.data!;
+        child: AsyncSection<List<ActivityItem>>(
+          loadable: _items,
+          errorLabel: "Couldn't load your activity.",
+          skeleton: const SkeletonList(),
+          builder: (context, items) {
             if (items.isEmpty) {
-              return Center(child: Text('No activity yet', style: TextStyle(color: slice.muted)));
+              return Center(
+                child: Text('No activity yet', style: TextStyle(color: slice.muted)),
+              );
             }
             return PageBody(
               child: ListView.builder(
@@ -80,9 +98,16 @@ class _ActivityScreenState extends State<ActivityScreen> {
                         border: Border.all(color: slice.border),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Icon(isSettlement ? Icons.swap_horiz : Icons.receipt_long, size: 18, color: slice.muted),
+                      child: Icon(
+                        isSettlement ? Icons.swap_horiz : Icons.receipt_long,
+                        size: 18,
+                        color: slice.muted,
+                      ),
                     ),
-                    title: Text(item.title, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: slice.ink)),
+                    title: Text(
+                      item.title,
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: slice.ink),
+                    ),
                     subtitle: Text(
                       '${item.groupName} · ${item.subtitle} · ${DateFormat.yMMMd().format(item.date)}',
                       style: TextStyle(fontSize: 12, color: slice.muted),

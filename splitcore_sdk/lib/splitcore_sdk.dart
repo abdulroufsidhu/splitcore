@@ -14,6 +14,7 @@ export 'src/models.dart'
         ExpenseInput,
         Group,
         GroupMember,
+        Page,
         PercentSplitEntry,
         Settlement,
         SettlementInput,
@@ -24,8 +25,22 @@ export 'src/models.dart'
         SplitSpec,
         Transfer;
 export 'src/remote/auth_api.dart' show AuthApi;
-export 'src/remote/balances_api.dart' show BalancesApi;
-export 'src/remote/expenses_api.dart' show ExpensesApi;
-export 'src/remote/groups_api.dart' show GroupsApi;
-export 'src/remote/settlements_api.dart' show SettlementsApi;
+export 'src/remote/export_api.dart' show ExportApi;
+export 'src/remote/token_store.dart' show FileTokenStore, TokenStore;
+export 'src/repo/balances_repository.dart' show BalancesRepository;
+export 'src/repo/expenses_repository.dart' show ExpensesRepository;
+export 'src/repo/groups_repository.dart' show GroupsRepository, UnsyncedWritesException;
+export 'src/repo/settlements_repository.dart' show SettlementsRepository;
 export 'src/sdk.dart' show SplitcoreSdk;
+export 'src/sync/events.dart'
+    show
+        ReceiptMissing,
+        SyncCompleted,
+        SyncConflict,
+        SyncEvent,
+        SyncFailed,
+        SyncOpFailed,
+        SyncStarted;
+export 'src/sync/outbox_op.dart' show OutboxOp, OutboxOps;
+export 'src/sync/sync_engine.dart' show SyncEngine;
+export 'src/sync/connectivity.dart' show AlwaysOnline, ConnectivityMonitor, FakeConnectivityMonitor;
