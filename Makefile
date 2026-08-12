@@ -2,7 +2,7 @@
 # targets, so "green locally" and "green in CI" mean the same thing.
 .DEFAULT_GOAL := help
 .PHONY: help native bundle-native apk server app test test-go test-sdk test-app \
-        fmt fmt-check vet analyze check clean
+        fmt fmt-check vet analyze check clean deploy
 
 # `make app` targets the local server; the app's own default is the deployed
 # one. Override for an emulator or device: make app POCKETBASE_URL=http://10.0.2.2:8090
@@ -74,6 +74,9 @@ analyze: ## Dart/Flutter static analysis
 	cd app && flutter pub get && flutter analyze --fatal-infos
 
 check: fmt-check vet analyze test ## Everything CI runs, in CI's order
+
+deploy: ## Back up, build, ship and verify the server on production
+	./server/deploy.sh
 
 clean: ## Remove build outputs
 	rm -rf splitcore/build/out
