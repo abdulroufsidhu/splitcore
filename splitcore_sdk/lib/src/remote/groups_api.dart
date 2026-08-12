@@ -70,7 +70,11 @@ class GroupsApi {
   }
 
   /// Takes [memberId] out of their group, and reports what the server
-  /// actually did:
+  /// actually did.
+  ///
+  /// Doubles as "leave this group": naming your own membership is allowed
+  /// without owning the group. Same row, same rules, same two outcomes —
+  /// only who may ask differs.
   ///
   ///  * `'removed'` — they appear nowhere in the ledger, so the membership
   ///    row was deleted outright and no trace is left.
@@ -79,8 +83,9 @@ class GroupsApi {
   ///    marked removed instead, and drop out of every member list.
   ///
   /// Throws when the server refuses — notably while the member's balance is
-  /// non-zero (settle up first), when they are the group's owner, or when
-  /// the caller does not own the group. Goes through
+  /// non-zero (settle up first), when they are the group's owner (owners
+  /// hand a group over or delete it, they do not walk out of it), or when
+  /// the caller neither owns the group nor is the member in question. Goes through
   /// /api/splitcore/remove-member rather than a plain delete because that
   /// choice cannot be made client-side (see server/hooks/remove_member.go).
   Future<String> removeMember(String memberId) async {

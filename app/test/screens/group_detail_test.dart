@@ -14,6 +14,16 @@ const _members = [
   GroupMember(id: 'm2', groupId: 'g1', userId: 'u2', role: 'member', name: 'Sam'),
 ];
 
+/// Sam, signed in as themselves — a plain member, not the group's owner.
+const _sam = AppUser(id: 'u2', email: 'sam@example.com', name: 'Sam', avatarUrl: '');
+
+/// A third party, so "a member acting on someone else" is neither the
+/// caller nor the owner.
+const _withRobin = [
+  ..._members,
+  GroupMember(id: 'm3', groupId: 'g1', userId: 'u3', role: 'member', name: 'Robin'),
+];
+
 Expense _expense(String id, String description, {int amountCents = 5000}) => Expense(
   id: id,
   groupId: 'g1',
@@ -170,16 +180,15 @@ void main() {
     expect(find.textContaining('unsettled balance'), findsOneWidget);
   });
 
-  testWidgets('a non-owner is offered no removal at all', (tester) async {
-    const notTheOwner = AppUser(id: 'u2', email: 'sam@example.com', name: 'Sam', avatarUrl: '');
-    await tester.pumpWidget(_host(load: () async => _data(), me: notTheOwner));
+  testWidgets("a plain member tapping the owner's card is offered nothing", (tester) async {
+    await tester.pumpWidget(_host(load: () async => _data(), me: _sam));
     await tester.pumpAndSettle();
     // Sam is "You" from this account, so open the other card.
     await tester.tap(find.text('Me'));
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(FilledButton, 'Remove from group'), findsNothing);
-    expect(find.textContaining('Only the group owner'), findsOneWidget);
+    expect(find.textContaining("owner can't be removed"), findsOneWidget);
   });
 
   testWidgets("the group's owner is never removable", (tester) async {
@@ -188,8 +197,9 @@ void main() {
     await tester.tap(find.text('You'));
     await tester.pumpAndSettle();
 
+    expect(find.widgetWithText(FilledButton, 'Leave group'), findsNothing);
     expect(find.widgetWithText(FilledButton, 'Remove from group'), findsNothing);
-    expect(find.textContaining("owner can't be removed"), findsOneWidget);
+    expect(find.textContaining('You own this group'), findsOneWidget);
   });
 
   testWidgets('former members stay visible as a muted line', (tester) async {
@@ -228,5 +238,70 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'Remove from group'), findsNothing);
     expect(find.textContaining("haven't reached the server"), findsOneWidget);
     expect(removed, isEmpty);
+  });
+
+  testWidgets('the group owner is tagged in the member strip', (tester) async {
+    await tester.pumpWidget(_host(load: () async => _data()));
+    await tester.pumpAndSettle();
+
+    // Exactly one card carries it — the tag marks the owner, not everybody.
+    expect(find.text('OWNER'), findsOneWidget);
+  });
+
+  testWidgets('a plain member can leave, and the screen closes behind them', (tester) async {
+    final left = <String>[];
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(),
+        me: _sam,
+        removeMember: (id) async {
+          left.add(id);
+          return 'removed';
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Sam's own card reads "You" from this account.
+    await tester.tap(find.text('You'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Leave group'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Leave group'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(TextButton, 'Leave'));
+    await tester.pumpAndSettle();
+
+    expect(left, ['m2']);
+  });
+
+  testWidgets('a plain member still cannot remove a third party', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        load: () async => GroupDetailData(
+          members: _withRobin,
+          balances: const [Balance(memberId: 'm3', netCents: 0)],
+          expenses: const <Expense>[],
+          settlements: const <Settlement>[],
+        ),
+        me: _sam,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Robin'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Remove from group'), findsNothing);
+    expect(find.textContaining('Only the group owner'), findsOneWidget);
+  });
+
+  testWidgets('leaving is blocked while you still owe money', (tester) async {
+    await tester.pumpWidget(_host(load: () async => _data(samNetCents: -800), me: _sam));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('You'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Leave group'), findsNothing);
+    expect(find.textContaining('Settle up before leaving'), findsOneWidget);
   });
 }

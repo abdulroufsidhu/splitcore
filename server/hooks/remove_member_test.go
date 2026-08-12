@@ -314,3 +314,110 @@ func TestMembersEndpointReportsRemovedAt(t *testing.T) {
 	scenario.ExpectedContent = []string{`"removed_at":"2026-08-11 00:00:00.000Z"`}
 	scenario.Test(t)
 }
+
+func TestLeaveGroupAsPlainMember(t *testing.T) {
+	var f *testfix.Fixture
+
+	scenario := tests.ApiScenario{
+		Name:   "a member can remove their own membership",
+		Method: http.MethodPost,
+		URL:    "/api/splitcore/remove-member",
+	}
+	scenario.TestAppFactory = func(t testing.TB) *tests.TestApp {
+		f = testfix.New(t)
+		// Bob, who owns nothing, naming his own membership.
+		token, err := f.Bob.NewAuthToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		scenario.Headers = map[string]string{"Authorization": token}
+		scenario.Body = strings.NewReader(`{"member_id":"` + f.BobM.Id + `"}`)
+		return f.App
+	}
+	scenario.ExpectedStatus = 200
+	scenario.ExpectedContent = []string{`"status":"removed"`}
+	scenario.AfterTestFunc = func(t testing.TB, app *tests.TestApp, _ *http.Response) {
+		if _, err := app.FindRecordById("group_members", f.BobM.Id); err == nil {
+			t.Fatal("membership survived the member leaving")
+		}
+	}
+	scenario.Test(t)
+}
+
+func TestLeaveGroupKeepsHistory(t *testing.T) {
+	var f *testfix.Fixture
+
+	scenario := tests.ApiScenario{
+		Name:   "leaving with settled history keeps the row, like being removed",
+		Method: http.MethodPost,
+		URL:    "/api/splitcore/remove-member",
+	}
+	scenario.TestAppFactory = func(t testing.TB) *tests.TestApp {
+		f = testfix.New(t)
+		settledHistory(t, f)
+
+		token, err := f.Bob.NewAuthToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		scenario.Headers = map[string]string{"Authorization": token}
+		scenario.Body = strings.NewReader(`{"member_id":"` + f.BobM.Id + `"}`)
+		return f.App
+	}
+	scenario.ExpectedStatus = 200
+	scenario.ExpectedContent = []string{`"status":"deactivated"`}
+	scenario.Test(t)
+}
+
+func TestLeaveGroupRefusedWhileOwing(t *testing.T) {
+	var f *testfix.Fixture
+
+	scenario := tests.ApiScenario{
+		Name:   "a member cannot walk out while they still owe money",
+		Method: http.MethodPost,
+		URL:    "/api/splitcore/remove-member",
+	}
+	scenario.TestAppFactory = func(t testing.TB) *tests.TestApp {
+		f = testfix.New(t)
+		expense := f.CreateExpense(t, f.AliceM, 1000, "equal")
+		f.CreateSplit(t, expense, f.AliceM, 500)
+		f.CreateSplit(t, expense, f.BobM, 500)
+
+		token, err := f.Bob.NewAuthToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		scenario.Headers = map[string]string{"Authorization": token}
+		scenario.Body = strings.NewReader(`{"member_id":"` + f.BobM.Id + `"}`)
+		return f.App
+	}
+	scenario.ExpectedStatus = 400
+	scenario.ExpectedContent = []string{`"status":400`}
+	scenario.AfterTestFunc = func(t testing.TB, app *tests.TestApp, _ *http.Response) {
+		if _, err := app.FindRecordById("group_members", f.BobM.Id); err != nil {
+			t.Fatal("member left despite owing money")
+		}
+	}
+	scenario.Test(t)
+}
+
+func TestOwnerCannotLeaveTheirOwnGroup(t *testing.T) {
+	scenario := tests.ApiScenario{
+		Name:   "the owner cannot leave their own group",
+		Method: http.MethodPost,
+		URL:    "/api/splitcore/remove-member",
+	}
+	scenario.TestAppFactory = func(t testing.TB) *tests.TestApp {
+		f := testfix.New(t)
+		token, err := f.Alice.NewAuthToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		scenario.Headers = map[string]string{"Authorization": token}
+		scenario.Body = strings.NewReader(`{"member_id":"` + f.AliceM.Id + `"}`)
+		return f.App
+	}
+	scenario.ExpectedStatus = 400
+	scenario.ExpectedContent = []string{`"status":400`}
+	scenario.Test(t)
+}

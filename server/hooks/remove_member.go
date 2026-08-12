@@ -9,7 +9,10 @@ import (
 )
 
 // registerRemoveMember binds POST /api/splitcore/remove-member, the owner's
-// "take this person out of the group" action.
+// "take this person out of the group" action — and, when the caller names
+// their own membership, the "leave this group" action. Both are the same
+// operation on the same row under the same rules; only who is allowed to
+// ask differs.
 //
 // It is a route rather than group_members' own DeleteRule because "remove"
 // cannot always mean "delete the row". Every relation pointing at
@@ -28,7 +31,8 @@ import (
 //     filters it out of every member list.
 //
 // Both refuse while the member's balance is non-zero: removing someone who
-// still owes money silently shifts the debt onto the rest of the group.
+// still owes money — or walking out while owing it — silently shifts the
+// debt onto the rest of the group.
 func registerRemoveMember(app core.App) {
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		se.Router.POST("/api/splitcore/remove-member", func(e *core.RequestEvent) error {
@@ -48,22 +52,28 @@ func registerRemoveMember(app core.App) {
 				return e.NotFoundError("not found", nil)
 			}
 
-			// Only the group's owner may remove anyone — the same trust
-			// boundary as group_members' own DeleteRule. 404 rather than 403
-			// so this never confirms a membership the caller cannot see.
-			group, err := e.App.FindFirstRecordByFilter("groups",
-				"id = {:g} && owner = {:u}",
-				dbx.Params{"g": member.GetString("group"), "u": e.Auth.Id})
+			group, err := e.App.FindRecordById("groups", member.GetString("group"))
 			if err != nil {
 				return e.NotFoundError("not found", nil)
 			}
 
-			// The owner's own membership is not removable: groups.owner is a
+			// Two ways to be allowed: the group's owner removing somebody, or
+			// anybody removing themselves. Everyone else gets a 404 rather
+			// than a 403, so this never confirms a membership the caller
+			// cannot otherwise see.
+			callerOwnsGroup := group.GetString("owner") == e.Auth.Id
+			removingSelf := member.GetString("user") == e.Auth.Id
+			if !callerOwnsGroup && !removingSelf {
+				return e.NotFoundError("not found", nil)
+			}
+
+			// The owner's membership goes neither way: groups.owner is a
 			// required non-cascading relation, and dropping the membership
 			// would revoke the owner's read access to their own group, since
-			// groups.ListRule is membership-based.
+			// groups.ListRule is membership-based. Owners hand the group over
+			// or delete it; they do not walk out of it.
 			if member.GetString("user") == group.GetString("owner") {
-				return e.BadRequestError("the group owner cannot be removed", nil)
+				return e.BadRequestError("the group owner cannot leave or be removed", nil)
 			}
 
 			net, err := memberNetCents(e.App, member)

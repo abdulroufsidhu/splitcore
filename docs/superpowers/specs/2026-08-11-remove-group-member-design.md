@@ -31,13 +31,17 @@ and settlements stay valid, and so every *other* member's balance stays
 correct. A hard delete is reserved for the case where there is genuinely
 nothing to preserve, so a mistaken invite leaves no trace.
 
+Removing yourself is the same operation, exposed as "leave group": the same
+row, the same rules, the same two outcomes. Only who may ask differs.
+
 Two removals are always rejected:
 
-- **The group owner.** `groups.owner` is a required non-cascading relation to
-  `users`, and removing the owner's membership would revoke their own read
-  access to the group (`groups.ListRule` is membership-based).
-- **By anyone who is not the owner** — the same trust boundary as the
-  existing `DeleteRule`.
+- **The group owner**, whether removed by themselves or anyone else.
+  `groups.owner` is a required non-cascading relation to `users`, and
+  removing the owner's membership would revoke their own read access to the
+  group (`groups.ListRule` is membership-based). Owners hand a group over or
+  delete it.
+- **By anyone who neither owns the group nor is the member in question.**
 
 Re-adding a deactivated member by email reactivates the existing row. Without
 this, deactivation is a one-way door and a misclick is unrecoverable.
@@ -53,10 +57,11 @@ balance check and the delete-or-deactivate decision:
 
 ```
 POST /api/splitcore/remove-member   {"member_id": "..."}
+  (caller must own the group, or name their own membership)
   -> 200 {"status": "removed"}      row deleted
   -> 200 {"status": "deactivated"}  removed_at set
-  -> 400                            outstanding balance, or owner
-  -> 404                            not found / caller is not the owner
+  -> 400                            outstanding balance, or the owner
+  -> 404                            no such member, or caller may not touch it
 ```
 
 This mirrors `POST /api/splitcore/delete-account` and reuses its
@@ -94,12 +99,19 @@ Tapping a member card in the group detail screen opens a sheet showing the
 member's avatar, name, role and current balance. A destructive **Remove from
 group** sits at the bottom, and its state carries the rules:
 
-- Not the group owner, or the target *is* the owner → no button at all.
+- Acting on yourself → the button reads **Leave group**, and the screen
+  closes behind you once it succeeds.
+- Acting on someone else without owning the group, or the target *is* the
+  owner → no button at all.
 - Target owes or is owed money → disabled, with the reason spelled out.
 - Otherwise → tapping raises a confirmation dialog.
 
 The success message distinguishes the two outcomes: "Alice removed" versus
 "Alice removed — their past expenses stay in this group's history."
+
+Each member card carries an `OWNER` tag when it belongs to the group's
+owner. The label is rendered blank for everyone else rather than omitted, so
+every card keeps the same height in the horizontal strip.
 
 Below the member strip, a muted "Former members: …" line appears when any
 deactivated members exist, so a removed person does not silently vanish.
@@ -119,5 +131,7 @@ foreign keys forbid. Splitwise behaves the same way.
   owner; re-add clears `removed_at`; `groups.version` bumps on both paths.
 - **Dart** — `listMembers` excludes deactivated members, `listAllMembers`
   includes them; `removeMember` returns the server's status.
-- **Flutter** — the remove button is absent for non-owners, disabled with a
-  reason when the member is in debt, and the confirmed path calls through.
+- **Flutter** — the button is absent when the caller may not act and when the
+  target is the owner, reads "Leave group" on your own row, is withheld with a
+  reason when money is outstanding or writes are unsent, and the confirmed
+  path calls through. The owner tag appears on exactly one card.

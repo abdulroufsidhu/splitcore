@@ -396,6 +396,21 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                                               ),
                                               overflow: TextOverflow.ellipsis,
                                             ),
+                                            // Rendered for everyone, blank for
+                                            // members, so every card keeps the
+                                            // same height — a Row lays its
+                                            // children out at their own heights,
+                                            // and one taller card would leave the
+                                            // rest visibly misaligned.
+                                            Text(
+                                              member.userId == widget.group.ownerId ? 'OWNER' : '',
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                letterSpacing: 0.6,
+                                                fontWeight: FontWeight.w700,
+                                                color: slice.muted,
+                                              ),
+                                            ),
                                             const SizedBox(height: 3),
                                             MoneyText(
                                               data.netFor(member.id),
@@ -577,20 +592,24 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     );
   }
 
-  /// The member sheet: who they are, what they owe, and — for the owner —
-  /// the way out of the group.
+  /// The member sheet: who they are, what they owe, and the way out of the
+  /// group — "Remove from group" for the owner acting on somebody else,
+  /// "Leave group" for anyone acting on themselves. Both are the same
+  /// operation on the same row, under the same rules; only the wording and
+  /// who may ask differ.
   ///
   /// The rules live in the button's state rather than in an error the user
-  /// only sees after tapping: a non-owner never sees it, the group's owner
-  /// is never removable, and a member with money outstanding gets a disabled
-  /// button with the reason next to it. The server enforces all three
-  /// regardless (server/hooks/remove_member.go) — this is so the user knows
-  /// where they stand before acting.
+  /// only sees after tapping: you can only act on yourself unless you own
+  /// the group, the group's owner can do neither, unsent work blocks
+  /// everything, and an unsettled balance blocks the rest. The server
+  /// enforces all of it regardless (server/hooks/remove_member.go) — this is
+  /// so the user knows where they stand before acting.
   Future<void> _showMemberSheet(GroupMember member, GroupDetailData data) async {
     final slice = context.slice;
     final net = data.netFor(member.id);
     final iAmOwner = widget.group.ownerId == widget.me.id;
     final isGroupOwner = member.userId == widget.group.ownerId;
+    final isMe = member.userId == widget.me.id;
     final name = displayName(member, widget.me);
     final unsent = await _unsentCount();
     if (!mounted) return;
@@ -598,19 +617,24 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     // Unsent work outranks the balance, because it is what makes the
     // balance untrustworthy: the server judges a removal on what it can
     // see, and anything still queued is invisible to it.
-    final String? blocked = switch ((iAmOwner, isGroupOwner, unsent, net)) {
-      (false, _, _, _) => 'Only the group owner can remove members.',
-      (_, true, _, _) => "The group's owner can't be removed.",
+    final String? blocked = switch ((isGroupOwner, iAmOwner || isMe, unsent, net)) {
+      (true, _, _, _) when isMe =>
+        "You own this group, so you can't leave it. Hand it over or delete it instead.",
+      (true, _, _, _) => "The group's owner can't be removed.",
+      (_, false, _, _) => 'Only the group owner can remove other members.',
       (_, _, final u, _) when u > 0 =>
         u == 1
-            ? "1 change hasn't reached the server yet. Nobody can be removed until it "
-                  'syncs — removing someone now could discard that change.'
-            : "$u changes haven't reached the server yet. Nobody can be removed until "
-                  'they sync — removing someone now could discard them.',
+            ? "1 change hasn't reached the server yet. Nobody can leave or be removed "
+                  'until it syncs — doing so now could discard that change.'
+            : "$u changes haven't reached the server yet. Nobody can leave or be "
+                  'removed until they sync — doing so now could discard them.',
       (_, _, _, final n) when n != 0 =>
-        '$name has an unsettled balance. Settle up before removing them.',
+        isMe
+            ? "You have an unsettled balance in this group. Settle up before leaving."
+            : '$name has an unsettled balance. Settle up before removing them.',
       _ => null,
     };
+    final actionLabel = isMe ? 'Leave group' : 'Remove from group';
 
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
@@ -656,7 +680,7 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                 FilledButton(
                   style: FilledButton.styleFrom(backgroundColor: slice.negative),
                   onPressed: () => Navigator.of(sheetContext).pop(true),
-                  child: const Text('Remove from group'),
+                  child: Text(actionLabel),
                 ),
             ],
           ),
@@ -665,15 +689,19 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     );
     if (confirmed != true || !mounted) return;
 
-    // Removal is not undoable from here — re-adding is a separate trip
-    // through the Add member sheet — so it gets a confirmation of its own.
+    // Neither is undoable from here — getting back in means being invited
+    // again — so both get a confirmation of their own.
     final proceed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Remove $name?'),
+        title: Text(isMe ? 'Leave ${widget.group.name}?' : 'Remove $name?'),
         content: Text(
-          "They'll be taken out of ${widget.group.name}. Any expenses they're "
-          'already part of stay in the group, so nobody else’s balance changes.',
+          isMe
+              ? "You'll be taken out of ${widget.group.name}. Any expenses you're "
+                    'already part of stay in the group, so nobody else’s balance '
+                    "changes. You'll need an invite to rejoin."
+              : "They'll be taken out of ${widget.group.name}. Any expenses they're "
+                    'already part of stay in the group, so nobody else’s balance changes.',
         ),
         actions: [
           TextButton(
@@ -682,7 +710,7 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text('Remove', style: TextStyle(color: slice.negative)),
+            child: Text(isMe ? 'Leave' : 'Remove', style: TextStyle(color: slice.negative)),
           ),
         ],
       ),
@@ -695,13 +723,21 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            status == 'deactivated'
-                ? "$name removed — their past expenses stay in this group's history."
-                : '$name removed.',
-          ),
+          content: Text(switch ((isMe, status)) {
+            (true, 'deactivated') =>
+              "You left ${widget.group.name} — your past expenses stay in its history.",
+            (true, _) => 'You left ${widget.group.name}.',
+            (_, 'deactivated') =>
+              "$name removed — their past expenses stay in this group's history.",
+            _ => '$name removed.',
+          }),
         ),
       );
+      // Leaving means this screen is showing a group we are no longer in.
+      if (isMe) {
+        Navigator.of(context).pop();
+        return;
+      }
       await refresh();
     } on UnsyncedWritesException catch (e) {
       // The queue can fill up between opening the sheet and confirming, so
@@ -711,13 +747,16 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
         SnackBar(
           content: Text(
             "${e.count} change(s) still haven't reached the server. "
-            '$name was not removed — try again once everything has synced.',
+            '${isMe ? 'You did not leave' : '$name was not removed'} — try again '
+            'once everything has synced.',
           ),
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Couldn't remove: $e")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Couldn't ${isMe ? 'leave' : 'remove'}: $e")));
     }
   }
 
