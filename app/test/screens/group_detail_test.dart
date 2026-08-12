@@ -38,6 +38,8 @@ Widget _host({
   required Future<GroupDetailData> Function() load,
   AppUser me = _me,
   Future<String> Function(String memberId)? removeMember,
+  Future<String> Function(String memberId)? transferOwnership,
+  Future<void> Function()? deleteGroup,
   int unsent = 0,
 }) => MaterialApp(
   theme: sliceLightTheme(),
@@ -47,9 +49,18 @@ Widget _host({
     group: _group,
     loadOverride: load,
     removeMemberOverride: removeMember,
+    transferOwnershipOverride: transferOwnership,
+    deleteGroupOverride: deleteGroup,
     unsentCountOverride: () async => unsent,
   ),
 );
+
+/// Opens the app bar's overflow menu, which only the owner has.
+Future<void> _openGroupMenu(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  await tester.tap(find.byType(PopupMenuButton<String>));
+  await tester.pumpAndSettle();
+}
 
 /// Opens the member sheet for Sam (m2), who is not the group's owner.
 Future<void> _openSamsSheet(WidgetTester tester) async {
@@ -303,5 +314,154 @@ void main() {
 
     expect(find.widgetWithText(FilledButton, 'Leave group'), findsNothing);
     expect(find.textContaining('Settle up before leaving'), findsOneWidget);
+  });
+
+  // ------------------------------------------------------------------
+  // Deleting the group
+  // ------------------------------------------------------------------
+
+  testWidgets('only the owner is offered the group menu', (tester) async {
+    await tester.pumpWidget(_host(load: () async => _data(), me: _sam));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PopupMenuButton<String>), findsNothing);
+  });
+
+  testWidgets('the owner can delete a settled group, after confirming', (tester) async {
+    var deleted = 0;
+    await tester.pumpWidget(_host(load: () async => _data(), deleteGroup: () async => deleted++));
+    await _openGroupMenu(tester);
+
+    await tester.tap(find.text('Delete group'));
+    await tester.pumpAndSettle();
+    // Confirmed before it happens: this destroys everyone's history.
+    expect(deleted, 0);
+    expect(find.textContaining('not just for you'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(deleted, 1);
+  });
+
+  testWidgets('cancelling the confirmation deletes nothing', (tester) async {
+    var deleted = 0;
+    await tester.pumpWidget(_host(load: () async => _data(), deleteGroup: () async => deleted++));
+    await _openGroupMenu(tester);
+    await tester.tap(find.text('Delete group'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(deleted, 0);
+  });
+
+  testWidgets('a group where money is owed cannot be deleted, and says why', (tester) async {
+    var deleted = 0;
+    await tester.pumpWidget(
+      _host(load: () async => _data(samNetCents: -1250), deleteGroup: () async => deleted++),
+    );
+    await _openGroupMenu(tester);
+    await tester.tap(find.text('Delete group'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Settle up before deleting'), findsOneWidget);
+    // The reason replaces the confirmation rather than following a tap on it.
+    expect(find.widgetWithText(TextButton, 'Delete'), findsNothing);
+    expect(deleted, 0);
+  });
+
+  testWidgets('unsent writes block the delete', (tester) async {
+    var deleted = 0;
+    await tester.pumpWidget(
+      _host(load: () async => _data(), unsent: 2, deleteGroup: () async => deleted++),
+    );
+    await _openGroupMenu(tester);
+    await tester.tap(find.text('Delete group'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining("haven't reached the server"), findsOneWidget);
+    expect(deleted, 0);
+  });
+
+  // ------------------------------------------------------------------
+  // Handing the group over
+  // ------------------------------------------------------------------
+
+  testWidgets('the owner can make another member the owner', (tester) async {
+    final handedTo = <String>[];
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(),
+        transferOwnership: (id) async {
+          handedTo.add(id);
+          return 'transferred';
+        },
+      ),
+    );
+    await _openSamsSheet(tester);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Make owner'));
+    await tester.pumpAndSettle();
+    expect(handedTo, isEmpty, reason: 'handing over is confirmed first');
+
+    await tester.tap(find.widgetWithText(TextButton, 'Make owner'));
+    await tester.pumpAndSettle();
+
+    expect(handedTo, ['m2']);
+  });
+
+  testWidgets('the owner cannot hand the group to themselves', (tester) async {
+    await tester.pumpWidget(_host(load: () async => _data()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('You'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(OutlinedButton, 'Make owner'), findsNothing);
+  });
+
+  testWidgets('a plain member cannot hand the group to anyone', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        load: () async => GroupDetailData(
+          members: _withRobin,
+          balances: const [Balance(memberId: 'm3', netCents: 0)],
+          expenses: const <Expense>[],
+          settlements: const <Settlement>[],
+        ),
+        me: _sam,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Robin'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(OutlinedButton, 'Make owner'), findsNothing);
+  });
+
+  // An outstanding balance stops a removal but not a handover: transferring
+  // moves no money, and it is exactly what an owner who wants out has to do
+  // first.
+  testWidgets('a member who owes money can still be made owner', (tester) async {
+    final handedTo = <String>[];
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(samNetCents: -1250),
+        transferOwnership: (id) async {
+          handedTo.add(id);
+          return 'transferred';
+        },
+      ),
+    );
+    await _openSamsSheet(tester);
+
+    expect(find.widgetWithText(FilledButton, 'Remove from group'), findsNothing);
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Make owner'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Make owner'));
+    await tester.pumpAndSettle();
+
+    expect(handedTo, ['m2']);
   });
 }

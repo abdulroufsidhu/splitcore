@@ -97,6 +97,39 @@ class GroupsApi {
     return response['status'] as String? ?? 'removed';
   }
 
+  /// Deletes [groupId] and everything in it — for every member, not just
+  /// the caller.
+  ///
+  /// A plain collection delete, because the server already does the work:
+  /// the delete rule limits it to the group's owner, and
+  /// OnRecordDelete("groups") both refuses while anybody's balance is
+  /// non-zero and orders the cascade so the group's expenses, splits,
+  /// settlements, balances, invites and memberships all go with it (see
+  /// server/hooks/hooks.go).
+  ///
+  /// Throws a 400 while money is outstanding, and a 404 when the caller
+  /// does not own the group.
+  Future<void> deleteGroup(String groupId) => _pb.collection('groups').delete(groupId);
+
+  /// Hands [groupId] to [memberId] and demotes the caller to a regular
+  /// member. Returns the server's status string, `'transferred'`.
+  ///
+  /// Goes through /api/splitcore/transfer-ownership because `groups.owner`
+  /// is deliberately unwritable by clients — the update hook restores the
+  /// stored owner on every PATCH (see server/hooks/hooks.go).
+  ///
+  /// Throws when the caller does not own the group (404), when the member
+  /// belongs to another group (404), and when they have been removed from
+  /// it or already own it (400).
+  Future<String> transferOwnership({required String groupId, required String memberId}) async {
+    final response = await _pb.send<Map<String, dynamic>>(
+      '/api/splitcore/transfer-ownership',
+      method: 'POST',
+      body: {'group_id': groupId, 'member_id': memberId},
+    );
+    return response['status'] as String? ?? 'transferred';
+  }
+
   /// Adds [email] to [groupId] if they already have an account, or records
   /// a pending invite that auto-joins them the moment they sign up with
   /// that email — no accept/decline step. Returns true if they were added

@@ -105,9 +105,14 @@ an active member who is not themselves, a secondary **Make owner** sits above
 the destructive action. Confirming explains both halves — "X will own this
 group. You will become a regular member and can then leave."
 
-After it succeeds the screen reloads: the `OWNER` tag moves, the caller's own
-sheet stops saying *"You own this group, so you can't leave it"* and offers
-**Leave group** instead, and the new owner's sheet gains the removal actions.
+After it succeeds the screen closes. The group it was showing was passed in
+as a snapshot whose `ownerId` decides the `OWNER` tag, the delete menu and
+whether leaving is offered — all three of which just changed — and reloading
+the screen's own data would not refresh any of them. Going back to the list,
+which re-reads the group, is both cheaper and harder to get wrong. Reopening
+the group shows the tag on its new holder, and the former owner's own sheet
+now offers **Leave group** where it used to say *"You own this group, so you
+can't leave it."*
 
 ## Testing
 

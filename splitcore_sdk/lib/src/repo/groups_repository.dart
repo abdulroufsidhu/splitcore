@@ -119,6 +119,42 @@ class GroupsRepository {
     return status;
   }
 
+  /// Deletes the group for everybody in it. See [GroupsApi.deleteGroup] for
+  /// what the server refuses.
+  ///
+  /// Drains the outbox first and throws [UnsyncedWritesException] if
+  /// anything is left, for the same reason [removeMember] does: the server
+  /// judges the delete on balances it can see, and a write still sitting in
+  /// the outbox is both invisible to that judgement and doomed — it would
+  /// replay against a group that no longer exists.
+  ///
+  /// The local rows need no cleanup here. The next pull drops the group
+  /// through `deleteGroupsMissingFrom`, and the local schema's
+  /// `ON DELETE CASCADE` takes its members, expenses, splits, settlements,
+  /// balances and sync_state with it — which is also how every other
+  /// member's device finds out.
+  ///
+  /// Online-only, like [removeMember].
+  Future<void> deleteGroup(String groupId) async {
+    await _sync.now();
+    final unsent = (await _sync.queued()).length + (await _sync.conflicts()).length;
+    if (unsent > 0) throw UnsyncedWritesException(unsent);
+
+    await _api.deleteGroup(groupId);
+    await _sync.now();
+  }
+
+  /// Makes [memberId] the group's owner and demotes the caller. Returns the
+  /// server's status string. See [GroupsApi.transferOwnership].
+  ///
+  /// No outbox gate: transferring moves no money, so unsent writes cannot
+  /// change what the server decides.
+  Future<String> transferOwnership({required String groupId, required String memberId}) async {
+    final status = await _api.transferOwnership(groupId: groupId, memberId: memberId);
+    await _sync.now();
+    return status;
+  }
+
   Future<bool> inviteOrAddMember({
     required String groupId,
     required String email,

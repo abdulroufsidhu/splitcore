@@ -61,6 +61,8 @@ class GroupDetailScreen extends StatefulWidget {
     this.loadOverride,
     this.searchOverride,
     this.removeMemberOverride,
+    this.transferOwnershipOverride,
+    this.deleteGroupOverride,
     this.unsentCountOverride,
   });
 
@@ -72,6 +74,16 @@ class GroupDetailScreen extends StatefulWidget {
   /// [GroupsRepository.removeMember] does.
   @visibleForTesting
   final Future<String> Function(String memberId)? removeMemberOverride;
+
+  /// Test seam for handing the group over, mirroring
+  /// [GroupsRepository.transferOwnership].
+  @visibleForTesting
+  final Future<String> Function(String memberId)? transferOwnershipOverride;
+
+  /// Test seam for deleting the group, mirroring
+  /// [GroupsRepository.deleteGroup].
+  @visibleForTesting
+  final Future<void> Function()? deleteGroupOverride;
 
   /// Test seam for "how much work has not reached the server yet".
   @visibleForTesting
@@ -296,6 +308,22 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
             icon: const Icon(Icons.person_add_alt_1),
             onPressed: () => _showAddMemberSheet(context),
           ),
+          // Only the owner can delete a group, so for everyone else the menu
+          // would open on nothing. Handing the group over lives on the
+          // member it names instead — see _showMemberSheet.
+          if (widget.group.ownerId == widget.me.id)
+            PopupMenuButton<String>(
+              tooltip: 'Group options',
+              onSelected: (value) {
+                if (value == 'delete') _deleteGroup();
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Text('Delete group', style: TextStyle(color: slice.negative)),
+                ),
+              ],
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
@@ -635,8 +663,14 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
       _ => null,
     };
     final actionLabel = isMe ? 'Leave group' : 'Remove from group';
+    // Handing the group over is the only way its owner ever gets out of it:
+    // an owner can neither leave nor be removed, because their membership
+    // is what grants them access to their own group. Offered on anyone but
+    // themselves — the target being the owner is impossible here, since
+    // only the owner sees this at all.
+    final canTransfer = iAmOwner && !isMe;
 
-    final confirmed = await showModalBottomSheet<bool>(
+    final action = await showModalBottomSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Padding(
@@ -674,12 +708,19 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
                 ],
               ),
               const SizedBox(height: 20),
+              if (canTransfer) ...[
+                OutlinedButton(
+                  onPressed: () => Navigator.of(sheetContext).pop('transfer'),
+                  child: const Text('Make owner'),
+                ),
+                const SizedBox(height: 10),
+              ],
               if (blocked != null)
                 Text(blocked, style: TextStyle(fontSize: 12.5, color: slice.muted))
               else
                 FilledButton(
                   style: FilledButton.styleFrom(backgroundColor: slice.negative),
-                  onPressed: () => Navigator.of(sheetContext).pop(true),
+                  onPressed: () => Navigator.of(sheetContext).pop('remove'),
                   child: Text(actionLabel),
                 ),
             ],
@@ -687,7 +728,9 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
         ),
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (!mounted) return;
+    if (action == 'transfer') return _transferOwnership(member, name);
+    if (action != 'remove') return;
 
     // Neither is undoable from here — getting back in means being invited
     // again — so both get a confirmation of their own.
@@ -757,6 +800,153 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Couldn't ${isMe ? 'leave' : 'remove'}: $e")));
+    }
+  }
+
+  /// Hands the group to [member] and demotes the caller to a regular
+  /// member.
+  ///
+  /// No balance or outbox gate: transferring moves no money, so there is
+  /// nothing unsent work could make the server judge wrongly. Refusals
+  /// (a member who was removed, a caller who no longer owns the group) come
+  /// back from the server and are surfaced as they are.
+  Future<void> _transferOwnership(GroupMember member, String name) async {
+    final slice = context.slice;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Make $name the owner?'),
+        content: Text(
+          "$name will own ${widget.group.name} and will be able to remove "
+          "members and delete the group. You'll become a regular member, and "
+          'can then leave. Only they can hand it back.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('Make owner', style: TextStyle(color: slice.negative)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final transfer =
+          widget.transferOwnershipOverride ??
+          (String memberId) =>
+              widget.sdk!.groups.transferOwnership(groupId: widget.group.id, memberId: memberId);
+      await transfer(member.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$name now owns ${widget.group.name}.')));
+      // widget.group is a snapshot taken when this screen opened, so its
+      // ownerId — which decides the OWNER tag, the delete menu and whether
+      // leaving is offered — is now stale. Popping is cheaper and less
+      // error-prone than threading a fresh group down; the list behind
+      // re-reads it.
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Couldn't hand over the group: $e")));
+    }
+  }
+
+  /// Deleting the whole group — the owner's only other option once they
+  /// have handed it over or settled up.
+  ///
+  /// This destroys everyone's history, not just the owner's, so the two
+  /// things that make it unsafe are reported instead of the confirmation
+  /// rather than after it: an outstanding balance (the server refuses it
+  /// anyway) and unsent writes (which the server cannot see, and which
+  /// would replay against a group that no longer exists).
+  Future<void> _deleteGroup() async {
+    final unsent = await _unsentCount();
+    if (!mounted) return;
+    final owing = (_data.value?.balances ?? const <Balance>[]).any((b) => b.netCents != 0);
+
+    final String? blocked = switch ((unsent, owing)) {
+      (final u, _) when u > 0 =>
+        u == 1
+            ? "1 change hasn't reached the server yet. Deleting now would "
+                  'discard it — try again once it syncs.'
+            : "$unsent changes haven't reached the server yet. Deleting now "
+                  'would discard them — try again once they sync.',
+      (_, true) =>
+        'Somebody in ${widget.group.name} still owes or is owed money. '
+            'Settle up before deleting the group.',
+      _ => null,
+    };
+    if (blocked != null) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text("Can't delete this group yet"),
+          content: Text(blocked),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('OK')),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final slice = context.slice;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Delete ${widget.group.name}?'),
+        content: Text(
+          'Every expense, settlement and balance in ${widget.group.name} will '
+          'be deleted, for everyone in it — not just for you. This cannot be '
+          'undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('Delete', style: TextStyle(color: slice.negative)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final delete =
+          widget.deleteGroupOverride ?? () => widget.sdk!.groups.deleteGroup(widget.group.id);
+      await delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${widget.group.name} deleted.')));
+      // The screen is now showing a group that no longer exists.
+      Navigator.of(context).pop();
+    } on UnsyncedWritesException catch (e) {
+      // The queue can fill up between the check above and the confirmation.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "${e.count} change(s) still haven't reached the server. "
+            '${widget.group.name} was not deleted — try again once everything '
+            'has synced.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Couldn't delete: $e")));
     }
   }
 

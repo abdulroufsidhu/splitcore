@@ -82,6 +82,20 @@ func Register(app core.App) {
 	app.OnRecordDelete("group_members").BindFunc(memberBind)
 
 	app.OnRecordDelete("groups").BindFunc(func(e *core.RecordEvent) error {
+		// Deleting a group destroys every member's history in it, not just
+		// the owner's, so it is held to the same rule as removing a member
+		// and leaving a group: money is settled before anyone walks away
+		// from it. The gate lives here rather than in a route because this
+		// hook is the one place every delete path passes through.
+		outstanding, err := groupHasOutstandingBalance(e.App, e.Record.Id)
+		if err != nil {
+			return err
+		}
+		if outstanding {
+			return apis.NewBadRequestError(
+				"settle all balances in this group before deleting it", nil)
+		}
+
 		// PocketBase's built-in delete cascade processes the collections
 		// referencing "groups" in alphabetical order: balances, expenses,
 		// group_members, settlements. expenses.payer and split_entries.member
@@ -117,10 +131,24 @@ func Register(app core.App) {
 
 	registerStaleness(app)
 	registerRemoveMember(app)
+	registerTransferOwnership(app)
 	registerInvite(app)
 	registerInviteAcceptance(app)
 	registerMembers(app)
 	registerAccountDeletion(app)
+}
+
+// groupHasOutstandingBalance reports whether anybody in the group still owes
+// or is owed money. Balances are hook-maintained and rewritten on every
+// mutation, so the cached rows are the authoritative answer; a group with no
+// rows at all has never moved any money.
+func groupHasOutstandingBalance(app core.App, groupID string) (bool, error) {
+	rows, err := app.FindRecordsByFilter("balances",
+		"group = {:g} && net_cents != 0", "", 1, 0, dbx.Params{"g": groupID})
+	if err != nil {
+		return false, err
+	}
+	return len(rows) > 0, nil
 }
 
 // deleteGroupSettlements deletes every settlements row for groupID. Used to

@@ -118,7 +118,9 @@ func TestDeletePopulatedGroupSucceeds(t *testing.T) {
 	expense := f.CreateExpense(t, f.AliceM, 3000, "exact")
 	f.CreateSplit(t, expense, f.AliceM, 1000)
 	f.CreateSplit(t, expense, f.BobM, 2000)
-	f.CreateSettlement(t, f.BobM, f.AliceM, 500)
+	// Settles Bob's whole share: deletion is gated on every balance being
+	// zero, so the group has to be square before it can go.
+	f.CreateSettlement(t, f.BobM, f.AliceM, 2000)
 
 	if err := f.App.Delete(f.Group); err != nil {
 		t.Fatalf("delete populated group: %v", err)
@@ -146,6 +148,40 @@ func TestDeletePopulatedGroupSucceeds(t *testing.T) {
 	}
 	if len(balances) != 0 {
 		t.Errorf("balances remaining after group delete = %d, want 0", len(balances))
+	}
+}
+
+// Deleting a group destroys everyone's history in it, so it is held to the
+// same rule as removing a member and leaving: settle first. Without this,
+// the owner could erase the record of a debt they owed.
+func TestDeleteGroupRefusedWhileMoneyIsOwed(t *testing.T) {
+	f := testfix.New(t)
+	expense := f.CreateExpense(t, f.AliceM, 1000, "equal")
+	f.CreateSplit(t, expense, f.AliceM, 500)
+	f.CreateSplit(t, expense, f.BobM, 500)
+
+	if err := f.App.Delete(f.Group); err == nil {
+		t.Fatal("group with an outstanding balance was deleted")
+	}
+
+	if _, err := f.App.FindRecordById("groups", f.Group.Id); err != nil {
+		t.Fatalf("group is gone despite the refusal: %v", err)
+	}
+	expenses, err := f.App.FindRecordsByFilter("expenses", "group = {:g}", "", 0, 0, dbx.Params{"g": f.Group.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expenses) != 1 {
+		t.Errorf("expenses after a refused delete = %d, want 1", len(expenses))
+	}
+}
+
+// An empty group has no balances rows at all, which must read as "nobody
+// owes anything" rather than blocking on missing data.
+func TestDeleteEmptyGroupSucceeds(t *testing.T) {
+	f := testfix.New(t)
+	if err := f.App.Delete(f.Group); err != nil {
+		t.Fatalf("delete empty group: %v", err)
 	}
 }
 
