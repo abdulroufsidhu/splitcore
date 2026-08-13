@@ -23,6 +23,7 @@ import '../widgets/money_text.dart';
 import '../widgets/page_body.dart';
 import '../widgets/skeleton.dart';
 import 'add_expense.dart';
+import 'members.dart';
 import 'receipt_viewer.dart';
 import 'settle_up.dart';
 
@@ -320,22 +321,32 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
             icon: const Icon(Icons.person_add_alt_1),
             onPressed: () => _showAddMemberSheet(context),
           ),
-          // Only the owner can delete a group, so for everyone else the menu
-          // would open on nothing. Handing the group over lives on the
-          // member it names instead — see _showMemberSheet.
-          if (widget.group.ownerId == widget.me.id)
-            PopupMenuButton<String>(
-              tooltip: 'Group options',
-              onSelected: (value) {
-                if (value == 'delete') _deleteGroup();
-              },
-              itemBuilder: (_) => [
+          // Everyone gets the members list and their own way out; only the
+          // owner gets delete, and only a non-owner gets leave — an owner's
+          // membership is what grants them access to their own group, so
+          // theirs ends by handing it over (see _showMemberSheet) or by
+          // deleting the group.
+          PopupMenuButton<String>(
+            tooltip: 'Group options',
+            onSelected: (value) {
+              if (value == 'members') _openMembers();
+              if (value == 'leave') _leaveGroup();
+              if (value == 'delete') _deleteGroup();
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'members', child: Text('Members')),
+              if (widget.group.ownerId != widget.me.id)
+                PopupMenuItem(
+                  value: 'leave',
+                  child: Text('Leave group', style: TextStyle(color: slice.negative)),
+                ),
+              if (widget.group.ownerId == widget.me.id)
                 PopupMenuItem(
                   value: 'delete',
                   child: Text('Delete group', style: TextStyle(color: slice.negative)),
                 ),
-              ],
-            ),
+            ],
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
@@ -616,8 +627,23 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        Text('BALANCES', style: sectionLabelStyle(slice.muted)),
-        const SizedBox(height: 10),
+        // The column already names everyone, so the members screen is one
+        // tap from it rather than only from a menu at the other end of a
+        // very wide window.
+        Row(
+          children: [
+            Expanded(child: Text('BALANCES', style: sectionLabelStyle(slice.muted))),
+            TextButton(
+              onPressed: _openMembers,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 32),
+              ),
+              child: const Text('Manage'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
         for (final member in data.members)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -665,27 +691,7 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     final name = displayName(member, widget.me);
     final unsent = await _unsentCount();
     if (!mounted) return;
-
-    // Unsent work outranks the balance, because it is what makes the
-    // balance untrustworthy: the server judges a removal on what it can
-    // see, and anything still queued is invisible to it.
-    final String? blocked = switch ((isGroupOwner, iAmOwner || isMe, unsent, net)) {
-      (true, _, _, _) when isMe =>
-        "You own this group, so you can't leave it. Hand it over or delete it instead.",
-      (true, _, _, _) => "The group's owner can't be removed.",
-      (_, false, _, _) => 'Only the group owner can remove other members.',
-      (_, _, final u, _) when u > 0 =>
-        u == 1
-            ? "1 change hasn't reached the server yet. Nobody can leave or be removed "
-                  'until it syncs — doing so now could discard that change.'
-            : "$u changes haven't reached the server yet. Nobody can leave or be "
-                  'removed until they sync — doing so now could discard them.',
-      (_, _, _, final n) when n != 0 =>
-        isMe
-            ? "You have an unsettled balance in this group. Settle up before leaving."
-            : '$name has an unsettled balance. Settle up before removing them.',
-      _ => null,
-    };
+    final blocked = _removalBlocker(member, net, unsent);
     final actionLabel = isMe ? 'Leave group' : 'Remove from group';
     // Handing the group over is the only way its owner ever gets out of it:
     // an owner can neither leave nor be removed, because their membership
@@ -755,6 +761,47 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
     if (!mounted) return;
     if (action == 'transfer') return _transferOwnership(member, name);
     if (action != 'remove') return;
+    return _confirmAndRemove(member);
+  }
+
+  /// Why [member] can't be taken out of the group right now, or null if they
+  /// can be. Shared by the member sheet, "Leave group" and the members
+  /// screen's bulk removal, so all three refuse for the same reasons in the
+  /// same words.
+  ///
+  /// Unsent work outranks the balance, because it is what makes the balance
+  /// untrustworthy: the server judges a removal on what it can see, and
+  /// anything still queued is invisible to it.
+  String? _removalBlocker(GroupMember member, int net, int unsent) {
+    final iAmOwner = widget.group.ownerId == widget.me.id;
+    final isGroupOwner = member.userId == widget.group.ownerId;
+    final isMe = member.userId == widget.me.id;
+    final name = displayName(member, widget.me);
+    return switch ((isGroupOwner, iAmOwner || isMe, unsent, net)) {
+      (true, _, _, _) when isMe =>
+        "You own this group, so you can't leave it. Hand it over or delete it instead.",
+      (true, _, _, _) => "The group's owner can't be removed.",
+      (_, false, _, _) => 'Only the group owner can remove other members.',
+      (_, _, final u, _) when u > 0 =>
+        u == 1
+            ? "1 change hasn't reached the server yet. Nobody can leave or be removed "
+                  'until it syncs — doing so now could discard that change.'
+            : "$u changes haven't reached the server yet. Nobody can leave or be "
+                  'removed until they sync — doing so now could discard them.',
+      (_, _, _, final n) when n != 0 =>
+        isMe
+            ? "You have an unsettled balance in this group. Settle up before leaving."
+            : '$name has an unsettled balance. Settle up before removing them.',
+      _ => null,
+    };
+  }
+
+  /// Confirms and performs a single removal — the member sheet's "Remove
+  /// from group", the app bar's "Leave group", and a bulk selection of one.
+  Future<void> _confirmAndRemove(GroupMember member) async {
+    final slice = context.slice;
+    final isMe = member.userId == widget.me.id;
+    final name = displayName(member, widget.me);
 
     // Neither is undoable from here — getting back in means being invited
     // again — so both get a confirmation of their own.
@@ -800,9 +847,14 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
           }),
         ),
       );
-      // Leaving means this screen is showing a group we are no longer in.
+      // Leaving means this screen is showing a group we are no longer in —
+      // and so is anything pushed on top of it, which is where the leave
+      // may have come from (the members screen).
       if (isMe) {
-        Navigator.of(context).pop();
+        final navigator = Navigator.of(context);
+        final here = ModalRoute.of(context);
+        if (here != null) navigator.popUntil((route) => route == here);
+        navigator.pop();
         return;
       }
       await refresh();
@@ -826,6 +878,129 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
       ).showSnackBar(SnackBar(content: Text("Couldn't ${isMe ? 'leave' : 'remove'}: $e")));
     }
   }
+
+  /// The members list, on its own screen: everybody in the group, what they
+  /// owe, and — for the owner — a selection mode that removes several at
+  /// once. It renders [_data] rather than a copy of it, so a removal made
+  /// there refreshes this screen and the list follows.
+  Future<void> _openMembers() async {
+    if (_data.value == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MembersScreen(
+          data: _data,
+          group: widget.group,
+          me: widget.me,
+          canManage: widget.group.ownerId == widget.me.id,
+          onOpenMember: (member) {
+            final current = _data.value;
+            if (current != null) _showMemberSheet(member, current);
+          },
+          onRemove: _removeMembers,
+        ),
+      ),
+    );
+  }
+
+  /// Leaving, without having to work out that it means tapping your own
+  /// balance card. Same rules and same confirmation as the member sheet —
+  /// this is a shorter path to them, not a second set.
+  Future<void> _leaveGroup() async {
+    final data = _data.value;
+    if (data == null) return;
+    final mine = memberFor(data.members, widget.me.id);
+    if (mine == null) return;
+    final unsent = await _unsentCount();
+    if (!mounted) return;
+    final blocked = _removalBlocker(mine, data.netFor(mine.id), unsent);
+    if (blocked != null) return _alert("Can't leave this group yet", blocked);
+    await _confirmAndRemove(mine);
+  }
+
+  /// Removes everybody in [members] — the members screen's bulk selection.
+  ///
+  /// One at a time, because that is what the server offers: removal depends
+  /// on a member's own balance and history, so there is no batch it could
+  /// judge as a unit. A member the server refuses is reported and the rest
+  /// still go; unsent work is the one refusal that applies to the whole
+  /// group, so it stops the batch instead.
+  Future<void> _removeMembers(List<GroupMember> members) async {
+    if (members.isEmpty) return;
+    if (members.length == 1) return _confirmAndRemove(members.single);
+    final slice = context.slice;
+    final unsent = await _unsentCount();
+    if (!mounted) return;
+    if (unsent > 0) {
+      return _alert(
+        "Can't remove anyone yet",
+        "$unsent change(s) haven't reached the server yet. Nobody can be "
+            'removed until they sync — doing so now could discard them.',
+      );
+    }
+
+    final names = members.map((m) => displayName(m, widget.me)).join(', ');
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Remove ${members.length} members?'),
+        content: Text(
+          "$names will be taken out of ${widget.group.name}. Any expenses "
+          "they're already part of stay in the group, so nobody else’s "
+          'balance changes. They will each need an invite to rejoin.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('Remove', style: TextStyle(color: slice.negative)),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true || !mounted) return;
+
+    final remove = widget.removeMemberOverride ?? widget.sdk!.groups.removeMember;
+    final failed = <String>[];
+    var removed = 0;
+    for (var i = 0; i < members.length; i++) {
+      try {
+        await remove(members[i].id);
+        removed++;
+      } on UnsyncedWritesException {
+        failed.addAll(members.sublist(i).map((m) => displayName(m, widget.me)));
+        break;
+      } catch (_) {
+        failed.add(displayName(members[i], widget.me));
+      }
+    }
+    await refresh();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          failed.isEmpty
+              ? '$removed members removed.'
+              : "$removed removed · couldn't remove ${failed.join(', ')} — "
+                    'settle their balances, or try again once everything has synced.',
+        ),
+      ),
+    );
+  }
+
+  /// A message with nothing to decide — why something can't be done yet.
+  Future<void> _alert(String title, String message) => showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('OK')),
+      ],
+    ),
+  );
 
   /// Hands the group to [member] and demotes the caller to a regular
   /// member.
@@ -908,19 +1083,7 @@ class GroupDetailScreenState extends State<GroupDetailScreen> {
             'Settle up before deleting the group.',
       _ => null,
     };
-    if (blocked != null) {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text("Can't delete this group yet"),
-          content: Text(blocked),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('OK')),
-          ],
-        ),
-      );
-      return;
-    }
+    if (blocked != null) return _alert("Can't delete this group yet", blocked);
 
     final slice = context.slice;
     final confirmed = await showDialog<bool>(

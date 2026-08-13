@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:splitcore_sdk/splitcore_sdk.dart';
 
 import 'package:splitcore_app/screens/group_detail.dart';
+import 'package:splitcore_app/screens/members.dart';
 import 'package:splitcore_app/theme.dart';
 
 final _group = Group(id: 'g1', name: 'Trip', currency: 'USD', version: 1, ownerId: 'u1');
@@ -55,12 +56,30 @@ Widget _host({
   ),
 );
 
-/// Opens the app bar's overflow menu, which only the owner has.
+/// Opens the app bar's overflow menu. Everyone has one; what is in it
+/// depends on whether the account owns the group.
 Future<void> _openGroupMenu(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await tester.tap(find.byType(PopupMenuButton<String>));
   await tester.pumpAndSettle();
 }
+
+/// Somebody the owner already removed, whose row had to be kept.
+const _formerDanish = [
+  GroupMember(id: 'm4', groupId: 'g1', userId: 'u4', role: 'member', name: 'Danish'),
+];
+
+/// Opens the members screen from the app bar's overflow menu.
+Future<void> _openMembers(WidgetTester tester) async {
+  await _openGroupMenu(tester);
+  await tester.tap(find.text('Members'));
+  await tester.pumpAndSettle();
+}
+
+/// Scoped to the pushed members screen, because the group screen underneath
+/// carries the same names on its balance cards.
+Finder _onMembersScreen(String text) =>
+    find.descendant(of: find.byType(MembersScreen), matching: find.text(text));
 
 /// Opens the member sheet for Sam (m2), who is not the group's owner.
 Future<void> _openSamsSheet(WidgetTester tester) async {
@@ -69,14 +88,17 @@ Future<void> _openSamsSheet(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-GroupDetailData _data({int samNetCents = 0, List<GroupMember> former = const []}) =>
-    GroupDetailData(
-      members: _members,
-      formerMembers: former,
-      balances: [Balance(memberId: 'm2', netCents: samNetCents)],
-      expenses: const <Expense>[],
-      settlements: const <Settlement>[],
-    );
+GroupDetailData _data({
+  int samNetCents = 0,
+  List<GroupMember> former = const [],
+  List<GroupMember> members = _members,
+}) => GroupDetailData(
+  members: members,
+  formerMembers: former,
+  balances: [Balance(memberId: 'm2', netCents: samNetCents)],
+  expenses: const <Expense>[],
+  settlements: const <Settlement>[],
+);
 
 void main() {
   testWidgets('renders the group name, members and its activity', (tester) async {
@@ -286,6 +308,108 @@ void main() {
     expect(left, ['m2']);
   });
 
+  // ------------------------------------------------------------------
+  // The members screen
+  // ------------------------------------------------------------------
+
+  testWidgets('Leave group in the menu takes the caller out, without the sheet', (tester) async {
+    final left = <String>[];
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(),
+        me: _sam,
+        removeMember: (id) async {
+          left.add(id);
+          return 'removed';
+        },
+      ),
+    );
+    await _openGroupMenu(tester);
+    await tester.tap(find.text('Leave group'));
+    await tester.pumpAndSettle();
+
+    // Same confirmation as the sheet's route to it.
+    expect(find.text('Leave Trip?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Leave'));
+    await tester.pumpAndSettle();
+
+    expect(left, ['m2']);
+  });
+
+  testWidgets('the members screen lists everyone in the group', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(members: _withRobin, former: _formerDanish),
+      ),
+    );
+    await _openMembers(tester);
+
+    // The signed-in account reads as "You" here, as it does everywhere else.
+    expect(_onMembersScreen('You'), findsOneWidget);
+    expect(_onMembersScreen('Sam'), findsOneWidget);
+    expect(_onMembersScreen('Robin'), findsOneWidget);
+    // Removed members are named, but carry no actions.
+    expect(_onMembersScreen('Danish'), findsOneWidget);
+  });
+
+  testWidgets('the owner can remove several members at once', (tester) async {
+    final removed = <String>[];
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(members: _withRobin),
+        removeMember: (id) async {
+          removed.add(id);
+          return 'removed';
+        },
+      ),
+    );
+    await _openMembers(tester);
+    await tester.tap(find.text('Select'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(_onMembersScreen('Sam'));
+    await tester.tap(_onMembersScreen('Robin'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove 2 members'));
+    await tester.pumpAndSettle();
+    // Confirmed as one act, then removed one at a time — the server judges
+    // each membership on its own.
+    expect(removed, isEmpty);
+    await tester.tap(find.widgetWithText(TextButton, 'Remove'));
+    await tester.pumpAndSettle();
+
+    expect(removed, ['m2', 'm3']);
+  });
+
+  testWidgets('the owner and anyone still owing money cannot be picked', (tester) async {
+    await tester.pumpWidget(_host(load: () async => _data(members: _withRobin, samNetCents: -800)));
+    await _openMembers(tester);
+    await tester.tap(find.text('Select'));
+    await tester.pumpAndSettle();
+
+    expect(_onMembersScreen("Owner — can't be removed"), findsOneWidget);
+    expect(_onMembersScreen('Unsettled balance — settle up first'), findsOneWidget);
+    // Only Robin is left to tick, so no bulk action appears until they are.
+    expect(find.widgetWithText(FilledButton, 'Remove 1 member'), findsNothing);
+    await tester.tap(_onMembersScreen('Robin'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FilledButton, 'Remove 1 member'), findsOneWidget);
+  });
+
+  testWidgets('a plain member gets the list but no selection mode', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        load: () async => _data(members: _withRobin),
+        me: _sam,
+      ),
+    );
+    await _openMembers(tester);
+
+    expect(_onMembersScreen('Robin'), findsOneWidget);
+    expect(find.text('Select'), findsNothing);
+  });
+
   testWidgets('a plain member still cannot remove a third party', (tester) async {
     await tester.pumpWidget(
       _host(
@@ -320,11 +444,21 @@ void main() {
   // Deleting the group
   // ------------------------------------------------------------------
 
-  testWidgets('only the owner is offered the group menu', (tester) async {
+  testWidgets('only the owner is offered Delete group', (tester) async {
     await tester.pumpWidget(_host(load: () async => _data(), me: _sam));
-    await tester.pumpAndSettle();
+    await _openGroupMenu(tester);
 
-    expect(find.byType(PopupMenuButton<String>), findsNothing);
+    expect(find.text('Members'), findsOneWidget);
+    expect(find.text('Leave group'), findsOneWidget);
+    expect(find.text('Delete group'), findsNothing);
+  });
+
+  testWidgets('the owner is offered Delete group, never Leave group', (tester) async {
+    await tester.pumpWidget(_host(load: () async => _data()));
+    await _openGroupMenu(tester);
+
+    expect(find.text('Delete group'), findsOneWidget);
+    expect(find.text('Leave group'), findsNothing);
   });
 
   testWidgets('the owner can delete a settled group, after confirming', (tester) async {
@@ -461,6 +595,15 @@ void main() {
     // the horizontal strip above the expense list.
     expect(find.text('Sam'), findsOneWidget);
     expect(find.text('You'), findsOneWidget);
+  });
+
+  testWidgets('the ultrawide column opens the members screen too', (tester) async {
+    await pumpAt(tester, const Size(2560, 1400));
+
+    await tester.tap(find.text('Manage'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MembersScreen), findsOneWidget);
   });
 
   testWidgets('a narrower window keeps the horizontal strip and no column', (tester) async {
