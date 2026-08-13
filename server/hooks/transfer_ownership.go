@@ -37,20 +37,35 @@ func registerTransferOwnership(app core.App) {
 				return e.BadRequestError("group_id and member_id are required", nil)
 			}
 
-			group, err := e.App.FindRecordById("groups", body.GroupID)
-			if err != nil {
+			// All three refusals below answer the same opaque 404, so the
+			// API never confirms a group the caller cannot otherwise see —
+			// which also makes them indistinguishable to whoever is holding
+			// the phone. The reason goes to the server log instead, where
+			// the client cannot read it but an operator can.
+			refuse := func(reason string) error {
+				e.App.Logger().Warn("transfer-ownership refused",
+					"reason", reason,
+					"caller", e.Auth.Id,
+					"group", body.GroupID,
+					"member", body.MemberID)
 				return e.NotFoundError("not found", nil)
 			}
 
-			// Non-owners get 404 rather than 403, so this never confirms a
-			// group the caller cannot otherwise see.
+			group, err := e.App.FindRecordById("groups", body.GroupID)
+			if err != nil {
+				return refuse("no such group")
+			}
+
 			if group.GetString("owner") != e.Auth.Id {
-				return e.NotFoundError("not found", nil)
+				return refuse("caller does not own the group")
 			}
 
 			member, err := e.App.FindRecordById("group_members", body.MemberID)
-			if err != nil || member.GetString("group") != group.Id {
-				return e.NotFoundError("not found", nil)
+			if err != nil {
+				return refuse("no such member")
+			}
+			if member.GetString("group") != group.Id {
+				return refuse("member belongs to another group")
 			}
 
 			if member.GetString("user") == group.GetString("owner") {
