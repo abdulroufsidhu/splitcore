@@ -1,8 +1,8 @@
 # Single entry point for every development task. CI runs these same
 # targets, so "green locally" and "green in CI" mean the same thing.
 .DEFAULT_GOAL := help
-.PHONY: help native bundle-native apk server app test test-go test-sdk test-app \
-        fmt fmt-check vet analyze check clean deploy
+.PHONY: help native bundle-native apk linux windows server app test test-go \
+        test-sdk test-app fmt fmt-check vet analyze check clean deploy
 
 # `make app` targets the local server; the app's own default is the deployed
 # one. Override for an emulator or device: make app POCKETBASE_URL=http://10.0.2.2:8090
@@ -30,6 +30,18 @@ bundle-native: ## Copy Android jniLibs into the Flutter runner tree
 apk: bundle-native ## Build per-ABI release APKs (one per architecture, ~1/3 the size of a fat APK)
 	cd app && flutter build apk --release --split-per-abi \
 		--obfuscate --split-debug-info=build/symbols
+
+linux: native ## Build the Linux desktop bundle (app/build/linux/x64/release/bundle)
+	cd app && flutter build linux --release
+
+# Windows can't be built from Linux — Flutter needs MSVC on a Windows host.
+# Run this from Git Bash there; build_windows.sh picks up the native gcc.
+# The DLL is copied next to the .exe because, unlike the Linux runner's
+# CMakeLists, the Windows one doesn't install it (CI does the same).
+windows: ## Build the Windows desktop bundle (Windows host only)
+	./splitcore/build/build_windows.sh
+	cd app && flutter build windows --release
+	cp splitcore/build/out/windows/splitcore.dll app/build/windows/x64/runner/Release/
 
 server: ## Run the PocketBase server on all interfaces, port 8090
 	cd server && go run . serve --http=0.0.0.0:8090

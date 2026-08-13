@@ -59,7 +59,7 @@ class _SettleUpScreenState extends State<SettleUpScreen> {
   Widget build(BuildContext context) {
     final slice = context.slice;
     return Scaffold(
-      appBar: AppBar(leading: const BackButton()),
+      appBar: AppBar(leading: Navigator.canPop(context) ? const BackButton() : null),
       body: SafeArea(
         child: FutureBuilder<List<Transfer>>(
           future: _transfers,

@@ -70,7 +70,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
   Widget build(BuildContext context) {
     final slice = context.slice;
     return Scaffold(
-      appBar: AppBar(leading: const BackButton(), title: const Text('Activity')),
+      appBar: AppBar(leading: Navigator.canPop(context) ? const BackButton() : null, title: const Text('Activity')),
       body: SafeArea(
         child: AsyncSection<List<ActivityItem>>(
           loadable: _items,
